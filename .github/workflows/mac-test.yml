@@ -39,6 +39,8 @@ jobs:
           open "/tmp/app/Saad Shard Sniper.app"
           sleep 15
           screencapture -x "$GITHUB_WORKSPACE/mac/test/out/screen_app.png"
+          sleep 45
+          screencapture -x "$GITHUB_WORKSPACE/mac/test/out/screen_app_later.png"
           pgrep -fl "Saad Shard Sniper" || (echo "APP NOT RUNNING" && exit 1)
           osascript -e 'tell application "System Events" to get name of every window of (every process whose name contains "Saad")' || true
           pkill -f "Saad Shard Sniper" || true
