@@ -51,6 +51,15 @@
                 radial-gradient(ellipse 80% 50% at 0% 100%, rgba(122,0,255,.10), rgba(122,0,255,0) 70%), var(--bg); }
   main::-webkit-scrollbar { width: 8px; } main::-webkit-scrollbar-thumb { background: #3a2560; border-radius: 4px; }
 
+  /* mode switch */
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  .mode { text-align: right; padding: 9px 11px; border: 0; cursor: pointer; background: var(--line); clip-path: var(--cut); color: var(--muted); }
+  .mode b { display: block; color: var(--text); font-size: 13px; }
+  .mode span { display: block; font-size: 10.5px; margin-top: 2px; line-height: 1.35; }
+  .mode.on { background: linear-gradient(135deg, #a64dff, var(--deep)); color: #e8d6ff; }
+  .mode.on b { color: #fff; }
+  .modes.locked .mode { opacity: .55; pointer-events: none; }
+
   /* big start button */
   .hero { display: flex; flex-direction: column; align-items: center; margin: 6px 0 14px; }
   #go {
@@ -140,6 +149,11 @@
 </header>
 
 <main>
+  <div class="modes">
+    <button class="mode" data-mode="watch"><b>👁 مراقبة</b><span>إنت بتلعب، وهو يبعتلك الشاحنات على Discord</span></button>
+    <button class="mode" data-mode="auto"><b>🤖 تلقائي</b><span>هو بيلعب ويدور على الشاحنات بنفسه</span></button>
+  </div>
+  <input type="hidden" id="mode">
   <div class="hero"><button id="go" class="en">Start</button></div>
 
   <div class="card"><div class="in">
@@ -233,7 +247,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const FIELDS = ["ai_provider", "claude_key", "gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat",
+const FIELDS = ["mode", "ai_provider", "claude_key", "gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat",
                 "server_from", "server_to", "excluded", "min_fragments", "interval", "window_id"];
 let api, saveTimer;
 
@@ -250,6 +264,7 @@ window.onState = s => {
   $("found").textContent = s.found;
   $("go").textContent = s.running ? "STOP" : "START";
   $("go").classList.toggle("on", s.running);
+  document.querySelector(".modes").classList.toggle("locked", s.running);
   showGate(!(s.screen_ok && s.ax_ok), s);
 };
 
@@ -300,6 +315,9 @@ async function init() {
   $("ver").textContent = "v" + all.version + (all.platform === "win" ? " · WINDOWS" : " · MAC");
   if (all.platform === "win") $("winHint").innerHTML = "افتح Last Z في <b>BlueStacks</b> أو <b>LDPlayer</b> أو <b>MuMu</b>. التطبيق بيختار النافذة لوحده، أو اختارها من هنا. خلي نافذة المحاكي ظاهرة ومش متصغرة.";
   FIELDS.forEach(k => { if (k !== "window_id" && k !== "ai_provider") $(k).value = all.config[k] ?? ""; });
+  const setMode = m => { $("mode").value = m; document.querySelectorAll(".mode").forEach(b => b.classList.toggle("on", b.dataset.mode === m)); };
+  setMode(all.config.mode || "auto");
+  document.querySelectorAll(".mode").forEach(b => b.onclick = () => { setMode(b.dataset.mode); api.save_config(collect()); });
   await loadWindows(all.config.window_id);
   onState(all.state);
   onLicense(await api.license());
