@@ -121,7 +121,7 @@ class Api:
                     pass
         if not c["gemini_model"]:
             c["gemini_model"] = "auto"
-        c["interval"] = max(3, int(c["interval"]))
+        c["interval"] = max(1, int(c["interval"]))
         c.save()
         return True
 
