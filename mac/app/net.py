@@ -55,6 +55,66 @@ def short_error(body):
     return msg[:140] + ("…" if len(msg) > 140 else "")
 
 
+# ---------------------------------------------------------------- Claude (Anthropic)
+
+CLAUDE_MODEL = "claude-haiku-5-5"  # fast, sees images, cheapest current model
+_claude_clients = {}
+
+
+def ask_claude(key, model, prompt, jpeg):
+    """Sends the screenshot + instructions to Claude and returns its JSON answer as a dict."""
+    return retry(lambda: _ask_claude_once(key, model, prompt, jpeg))
+
+
+def _ask_claude_once(key, model, prompt, jpeg):
+    import anthropic  # imported here so the app still starts if the package is missing
+
+    client = _claude_clients.get(key)
+    if client is None:
+        client = anthropic.Anthropic(api_key=key, timeout=90.0, max_retries=3)
+        _claude_clients[key] = client
+    try:
+        response = client.messages.create(
+            model=model or CLAUDE_MODEL,
+            max_tokens=8000,
+            output_config={"effort": "low"},  # quick look-and-click decisions; keeps cost and delay down
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                 "data": base64.standard_b64encode(jpeg).decode("utf-8")}},
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        )
+    except anthropic.AuthenticationError:
+        raise RuntimeError("مفتاح Claude غلط أو اتلغى")
+    except anthropic.PermissionDeniedError:
+        raise RuntimeError("مفتاح Claude مالوش صلاحية على الموديل ده")
+    except anthropic.NotFoundError:
+        raise ModelGone(model)
+    except anthropic.RateLimitError:
+        time.sleep(15)
+        raise Busy("Claude 429")
+    except anthropic.APIStatusError as e:
+        if e.status_code == 402 or "credit" in str(e.message).lower():
+            raise RuntimeError("رصيد Claude خلص. اشحن من console.anthropic.com")
+        if e.status_code >= 500:
+            raise Busy("Claude %d" % e.status_code)
+        raise RuntimeError("Claude %d: %s" % (e.status_code, short_error(str(e.message))))
+    except anthropic.APIConnectionError:
+        raise Busy("Claude connection")
+
+    if response.stop_reason == "refusal":
+        raise RuntimeError("Claude رفض يرد على الصورة دي")
+    text = "".join(b.text for b in response.content if b.type == "text").strip()
+    text = re.sub(r"^```(json)?|```$", "", text).strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end < start:
+        raise RuntimeError("رد Claude مش JSON")
+    return json.loads(text[start:end + 1])
+
+
 # ---------------------------------------------------------------- Gemini
 
 def ask_gemini(key, model, prompt, jpeg):
