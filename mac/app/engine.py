@@ -7,10 +7,11 @@ import threading
 import time
 from collections import deque
 
-import macos
+import osapi as macos
 import net
 
-CONFIG_DIR = os.path.expanduser("~/Library/Application Support/Saad Shard Sniper")
+CONFIG_DIR = (os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Saad Shard Sniper")
+              if macos.PLATFORM == "win" else os.path.expanduser("~/Library/Application Support/Saad Shard Sniper"))
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 
 DEFAULTS = {
@@ -333,7 +334,7 @@ class Engine:
                 "  If the card is closed, reopen that truck from the list first.\n" % (p["server"], p["player"])
             )
         return (
-            "You control the mobile game \"Last Z: Survival Shooter\" shown in a desktop window on a Mac "
+            "You control the mobile game \"Last Z: Survival Shooter\" shown in a desktop window on a computer "
             "(BlueStacks, the iPhone/iPad app, or another emulator; UI may be Arabic or English). You see one screenshot "
             "of that window. Ignore emulator toolbars/side panels around the game.\n\n"
             "GOAL: scout other players' trade trucks (Intercity Trade / Mysterious Trade event) and find trucks of rank S "
