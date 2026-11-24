@@ -206,7 +206,8 @@ class Engine:
                     time.sleep(5)
                     continue
                 try:
-                    shot, self._card = vision.main_and_card(big)
+                    reading_card = "yellow truck" in getattr(self, "_last_code", "")
+                    shot, self._card = vision.main_and_card(big, 640 if reading_card else 900)
                 except Exception:
                     shot, self._card = big, None
 
@@ -220,10 +221,17 @@ class Engine:
                     self._yellow = vision.yellow_trucks(shot)
                 except Exception:
                     self._yellow = []
-                ans = self._ask(shot)
-                self._log(ans)
+                last = getattr(self, "_last_code", "")
+                skip_ai = (not self._pending and not getattr(self, "_need_close", False)
+                           and getattr(self, "_refresh_xy", None) is not None
+                           and any(k in last for k in ("Refresh dice (code)", "close Share popup (code)",
+                                                        "waiting for trucks after Refresh (code)", "Refresh cooldown (code)")))
+                if skip_ai:
+                    ans = {"screen": "trucks road", "trucks": [], "action": {"type": "none"}}
+                else:
+                    ans = self._ask(shot)
+                    self._log(ans)
                 errors = 0
-
                 self._handle_trucks(ans.get("trucks") or [], win)
                 self._after_step(ans)
                 screen = str(ans.get("screen", "?"))
@@ -232,6 +240,7 @@ class Engine:
                     self._refresh_xy = (float(rxy[0]), float(rxy[1]))
                 act = self._drive_trucks(ans.get("action") or {}, ans)
                 done = self._act(act, win)
+                self._last_code = str(act.get("target", "")) if "(code)" in str(act.get("target", "")) else ""
                 self._note_opened(act)
                 self._acted = done.split(" ")[0] in ("tap", "swipe", "back")
                 self._history.append(screen + " -> " + done)
@@ -247,8 +256,10 @@ class Engine:
                 tgt = str(act.get("target", ""))
                 if act.get("type") == "wait":
                     wait = 8
+                elif act.get("type") == "none":
+                    wait = 0.5
                 elif "(code)" in tgt:
-                    wait = 1.2 if "Refresh" not in tgt else 2.5  # let the new trucks drive in
+                    wait = 2.2 if "Refresh dice" in tgt else 0.9  # let new trucks drive in / card open
                 else:
                     wait = int(self.cfg["interval"])
                 end = time.time() + wait + random.uniform(0, 0.6)
@@ -673,7 +684,7 @@ class Engine:
                 "Recent steps:\n" + hist + "\n"
             )
         return knowledge + task + (
-            "Answer ONLY JSON:\n"
+            "Answer ONLY compact JSON, no extra text. Keep \"screen\" to at most 6 words and \"rewards\" to at most 8 words.\n"
             "{\"screen\": \"short description of the current screen\",\n"
             " \"trucks\": [ {\"server\": 398, \"player\": \"name or empty\", \"rank\": \"S|A|B|...\", \"s_fragments\": 3, "
             "\"arrival\": \"04:23:10\", \"coords\": \"X:123 Y:456 if shown on the card, else empty\", "
