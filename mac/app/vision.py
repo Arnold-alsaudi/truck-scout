@@ -47,3 +47,18 @@ def yellow_trucks(jpeg, max_items=12):
                 blobs.append((sum(xs) / len(xs), sum(ys) / len(ys)))
     blobs.sort(key=lambda b: (b[1], b[0]))
     return [(int(bx * 1000 / W), int(by * 1000 / H)) for bx, by in blobs[:max_items]]
+
+
+def main_and_card(jpeg_big, main_width=900):
+    """From one high-res screenshot: a normal-size image for the AI plus an enlarged crop of the lower part
+    (where the truck card and its reward icons are), so small S-fragment icons are easy to read."""
+    from PIL import Image
+    img = Image.open(io.BytesIO(jpeg_big)).convert("RGB")
+    main = img.resize((main_width, round(img.height * main_width / img.width)), Image.LANCZOS) if img.width > main_width else img
+    card = img.crop((0, int(img.height * 0.55), img.width, int(img.height * 0.97)))
+    out = []
+    for im in (main, card):
+        b = io.BytesIO()
+        im.save(b, "JPEG", quality=85)
+        out.append(b.getvalue())
+    return out[0], out[1]
