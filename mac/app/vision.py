@@ -14,7 +14,7 @@ def yellow_trucks(jpeg, max_items=12):
     small = img.resize((W, H))
     hsv = small.convert("HSV")
     px, hx = small.load(), hsv.load()
-    y0, y1 = int(H * 0.12), int(H * 0.86)
+    y0, y1 = int(H * 0.12), int(H * 0.72)  # stop above the truck card's Plunder!/Share buttons
     mask = [[False] * W for _ in range(H)]
     for y in range(y0, y1):
         for x in range(W):
@@ -43,7 +43,7 @@ def yellow_trucks(jpeg, max_items=12):
             ys = [p[1] for p in pts]
             w, h = max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
             # truck body: wider than tall, a reasonable share of the screen width
-            if len(pts) >= 10 and W * 0.06 <= w <= W * 0.45 and h <= H * 0.22 and w >= h * 1.4:
+            if len(pts) >= 10 and W * 0.06 <= w <= W * 0.20 and h <= H * 0.22 and w >= h * 1.4:
                 blobs.append((sum(xs) / len(xs), sum(ys) / len(ys)))
     blobs.sort(key=lambda b: (b[1], b[0]))
     return [(int(bx * 1000 / W), int(by * 1000 / H)) for bx, by in blobs[:max_items]]
