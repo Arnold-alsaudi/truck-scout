@@ -15,6 +15,9 @@ CONFIG_DIR = (os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 
 DEFAULTS = {
+    "ai_provider": "claude",          # claude | gemini
+    "claude_key": "",
+    "claude_model": "claude-haiku-5-5",
     "gemini_key": "",
     "gemini_model": "auto",
     "gemini_model_resolved": "",
@@ -127,8 +130,8 @@ class Engine:
         if self.running:
             return
         c = self.cfg
-        if not c["gemini_key"]:
-            return self._set("error", "حط مفتاح Gemini في الإعدادات")
+        if not self._key():
+            return self._set("error", "حط مفتاح Claude (أو Gemini) في الإعدادات")
         if not c["discord_webhook"] and not (c["tg_token"] and c["tg_chat"]):
             return self._set("error", "حط لينك Discord في الإعدادات")
         if not macos.has_screen_recording() or not macos.has_accessibility():
@@ -185,13 +188,7 @@ class Engine:
                     time.sleep(5)
                     continue
 
-                try:
-                    ans = net.ask_gemini(self.cfg["gemini_key"], self._model(), self._prompt(), shot)
-                except net.ModelGone:
-                    self.cfg["gemini_model"] = "auto"
-                    self.cfg["gemini_model_resolved"] = ""
-                    self.cfg.save()
-                    ans = net.ask_gemini(self.cfg["gemini_key"], self._model(), self._prompt(), shot)
+                ans = self._ask(shot)
                 errors = 0
 
                 self._handle_trucks(ans.get("trucks") or [], win)
@@ -210,6 +207,39 @@ class Engine:
                 errors += 1
                 self._set("error", "خطأ: " + net.short_error(str(e)))
                 time.sleep(min(120, 5 * errors))
+
+    # ------------------------------------------------------------ AI provider
+
+    def _provider(self):
+        """claude or gemini: the chosen one if its key is set, else whichever key exists."""
+        c = self.cfg
+        p = str(c.get("ai_provider") or "claude").lower()
+        if p == "claude" and not c.get("claude_key") and c.get("gemini_key"):
+            return "gemini"
+        if p == "gemini" and not c.get("gemini_key") and c.get("claude_key"):
+            return "claude"
+        return p
+
+    def _key(self):
+        return self.cfg.get("claude_key" if self._provider() == "claude" else "gemini_key") or ""
+
+    def _ask(self, shot):
+        c = self.cfg
+        if self._provider() == "claude":
+            model = str(c.get("claude_model") or net.CLAUDE_MODEL).strip()
+            try:
+                return net.ask_claude(c["claude_key"], model, self._prompt(), shot)
+            except net.ModelGone:
+                c["claude_model"] = net.CLAUDE_MODEL
+                c.save()
+                return net.ask_claude(c["claude_key"], net.CLAUDE_MODEL, self._prompt(), shot)
+        try:
+            return net.ask_gemini(c["gemini_key"], self._model(), self._prompt(), shot)
+        except net.ModelGone:
+            c["gemini_model"] = "auto"
+            c["gemini_model_resolved"] = ""
+            c.save()
+            return net.ask_gemini(c["gemini_key"], self._model(), self._prompt(), shot)
 
     def _model(self):
         m = str(self.cfg.get("gemini_model") or "auto").strip()
