@@ -162,13 +162,25 @@
 
   <div class="sec" data-sec="conn">الاتصالات <span class="chev">‹</span></div>
   <div class="card"><div class="in">
-    <label>مفتاح Gemini API</label>
-    <div class="field"><input id="gemini_key" type="password" spellcheck="false"></div>
+    <label>الذكاء الاصطناعي</label>
+    <div class="field"><select id="ai_provider">
+      <option value="claude">Claude (Haiku 5.5) · مقترح</option>
+      <option value="gemini">Gemini</option>
+    </select></div>
+    <div id="boxClaude">
+      <label>مفتاح Claude API</label>
+      <div class="field"><input id="claude_key" type="password" spellcheck="false" placeholder="sk-ant-..."></div>
+    </div>
+    <div id="boxGemini">
+      <label>مفتاح Gemini API</label>
+      <div class="field"><input id="gemini_key" type="password" spellcheck="false"></div>
+    </div>
+    <button class="btn wide" id="testAi">تجربة الذكاء الاصطناعي</button>
     <label>لينك Discord Webhook</label>
     <div class="field"><input id="discord_webhook" type="password" spellcheck="false"></div>
     <button class="btn wide" id="testDiscord">تجربة Discord</button>
-    <label>موديل Gemini · auto = تلقائي</label>
-    <div class="field"><input id="gemini_model" spellcheck="false"></div>
+    <div id="boxGeminiModel"><label>موديل Gemini · auto = تلقائي</label>
+    <div class="field"><input id="gemini_model" spellcheck="false"></div></div>
     <label>Telegram Bot Token · اختياري</label>
     <div class="field"><input id="tg_token" type="password" spellcheck="false"></div>
     <label>Telegram Chat ID · اختياري</label>
@@ -221,7 +233,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const FIELDS = ["gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat",
+const FIELDS = ["ai_provider", "claude_key", "gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat",
                 "server_from", "server_to", "excluded", "min_fragments", "interval", "window_id"];
 let api, saveTimer;
 
@@ -275,12 +287,19 @@ window.onLicense = l => {
   $("lockTitle").textContent = l.status === "locked" ? "التطبيق مقفول" : (l.status === "offline" ? "محتاج إنترنت" : "النسخة موقوفة");
 };
 
+function showProvider() {
+  const c = $("ai_provider").value === "claude";
+  $("boxClaude").style.display = c ? "block" : "none";
+  $("boxGemini").style.display = c ? "none" : "block";
+  $("boxGeminiModel").style.display = c ? "none" : "block";
+}
+
 async function init() {
   api = window.pywebview.api;
   const all = await api.get_all();
   $("ver").textContent = "v" + all.version + (all.platform === "win" ? " · WINDOWS" : " · MAC");
   if (all.platform === "win") $("winHint").innerHTML = "افتح Last Z في <b>BlueStacks</b> أو <b>LDPlayer</b> أو <b>MuMu</b>. التطبيق بيختار النافذة لوحده، أو اختارها من هنا. خلي نافذة المحاكي ظاهرة ومش متصغرة.";
-  FIELDS.forEach(k => { if (k !== "window_id") $(k).value = all.config[k] ?? ""; });
+  FIELDS.forEach(k => { if (k !== "window_id" && k !== "ai_provider") $(k).value = all.config[k] ?? ""; });
   await loadWindows(all.config.window_id);
   onState(all.state);
   onLicense(await api.license());
@@ -291,7 +310,10 @@ async function init() {
   };
   $("lockPass").addEventListener("keydown", e => { if (e.key === "Enter") $("lockBtn").click(); });
 
-  FIELDS.forEach(k => $(k).addEventListener(k === "window_id" ? "change" : "input", autosave));
+  FIELDS.forEach(k => $(k).addEventListener(k === "window_id" || k === "ai_provider" ? "change" : "input", autosave));
+  $("ai_provider").value = all.config.ai_provider || "claude"; showProvider();
+  $("ai_provider").addEventListener("change", showProvider);
+  $("testAi").onclick = async () => { await api.save_config(collect()); const r = await api.test_ai(); r.startsWith("ok:") ? toast("شغال ✓ " + r.slice(3), "ok") : toast(r, "err"); };
   $("go").onclick = async () => {
     await api.save_config(collect());
     const running = $("go").classList.contains("on");
