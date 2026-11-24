@@ -1,0 +1,9 @@
+{
+    "clients":  {
+                    "client1":  {
+                                    "status":  "active",
+                                    "pass_sha256":  "",
+                                    "message":  ""
+                                }
+                }
+}
