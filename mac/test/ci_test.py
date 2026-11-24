@@ -69,7 +69,7 @@ asked = []
 
 def fake_gemini(key, model, prompt, jpeg):
     asked.append({"model": model, "prompt_has_servers": "#385" in prompt, "jpeg": len(jpeg),
-                  "asks_view": "click \"View\"" in prompt})
+                  "asks_view": "tap \"Share\" on its card" in prompt})
     if len(asked) >= 2:
         # second step: the bot pressed View, the world map shows the truck's coordinates
         return {"screen": "world map at truck", "trucks": [], "map_coords": "#398 X:512 Y:733",
