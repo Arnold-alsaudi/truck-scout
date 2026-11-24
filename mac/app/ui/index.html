@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>Saad Shard Sniper</title>
+<style>
+  :root {
+    --bg: #0c0516; --panel: #150b24; --panel2: #0f0719; --input: #07030d; --line: #2e1c4d;
+    --purple: #9a3dff; --deep: #6200d6; --light: #c98bff; --text: #e9e9ee; --muted: #9494a1;
+    --ok: #3dd68c; --warn: #ffc83d; --bad: #ff5d63;
+    --cut: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+    --cut-lg: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+    --slant: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text); overflow: hidden;
+    font: 13px/1.45 -apple-system, "SF Pro Text", "Segoe UI", Tahoma, sans-serif;
+    -webkit-user-select: none; user-select: none; display: flex; flex-direction: column;
+  }
+  input, select, button { font: inherit; color: inherit; }
+  .en { font-family: "SF Pro Display", -apple-system, sans-serif; letter-spacing: .14em; text-transform: uppercase; }
+
+  /* header */
+  header {
+    position: relative; text-align: center; padding: 18px 12px 14px; overflow: hidden; flex: none;
+    background:
+      radial-gradient(ellipse 60% 120% at 50% 0%, rgba(122,0,255,.34), rgba(122,0,255,0) 70%),
+      repeating-linear-gradient(115deg, rgba(255,255,255,.028) 0 2px, rgba(255,255,255,0) 2px 14px), #100820;
+  }
+  header:after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+    background: linear-gradient(90deg, rgba(122,0,255,0), var(--purple) 30%, var(--light) 50%, var(--purple) 70%, rgba(122,0,255,0)); }
+  header:before { content: ""; position: absolute; top: 0; bottom: 0; left: -40%; width: 30%;
+    background: linear-gradient(100deg, rgba(255,255,255,0), rgba(201,139,255,.16), rgba(255,255,255,0));
+    transform: skewX(-20deg); animation: sweep 6s ease-in-out infinite; }
+  @keyframes sweep { 0%, 55% { left: -40%; } 100% { left: 120%; } }
+  .brand { color: var(--light); font-size: 11px; letter-spacing: .6em; font-weight: 700; }
+  .title { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: .1em; text-shadow: 0 0 16px rgba(154,61,255,.85); }
+  .tag { margin-top: 6px; display: flex; align-items: center; justify-content: center; font-size: 9px; letter-spacing: .35em; color: #c69bda; }
+  .tag i { width: 40px; height: 1px; background: linear-gradient(90deg, rgba(154,61,255,0), var(--purple)); margin: 0 10px; }
+  .tag i:first-child { transform: scaleX(-1); }
+
+  main { flex: 1; overflow-y: auto; padding: 14px 14px 20px;
+    background: linear-gradient(rgba(154,61,255,.05) 1px, transparent 1px) 0 0 / 100% 26px,
+                radial-gradient(ellipse 80% 50% at 0% 100%, rgba(122,0,255,.10), rgba(122,0,255,0) 70%), var(--bg); }
+  main::-webkit-scrollbar { width: 8px; } main::-webkit-scrollbar-thumb { background: #3a2560; border-radius: 4px; }
+
+  /* big start button */
+  .hero { display: flex; flex-direction: column; align-items: center; margin: 6px 0 14px; }
+  #go {
+    width: 100%; height: 64px; border: 0; cursor: pointer; color: #fff; font-size: 18px; font-weight: 800; letter-spacing: .2em;
+    background: linear-gradient(135deg, #a64dff, var(--deep)); clip-path: var(--slant);
+    filter: drop-shadow(0 0 14px rgba(154,61,255,.55)); transition: filter .15s, transform .1s;
+  }
+  #go:hover { filter: drop-shadow(0 0 20px rgba(154,61,255,.9)) brightness(1.12); }
+  #go:active { transform: scale(.97); }
+  #go.on { background: linear-gradient(135deg, #3a1a5f, #1d0d33); box-shadow: inset 0 0 0 1px var(--purple); }
+
+  /* status card */
+  .card { background: var(--line); padding: 1px; clip-path: var(--cut-lg); margin-bottom: 12px; }
+  .card > .in { background: var(--panel); clip-path: var(--cut-lg); padding: 12px 14px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .dot { width: 10px; height: 10px; transform: rotate(45deg); background: var(--bad); box-shadow: 0 0 8px currentColor; flex: none; }
+  .dot.running { background: var(--ok); color: var(--ok); animation: pulse 1.4s ease-in-out infinite; }
+  .dot.paused, .dot.error { background: var(--warn); color: var(--warn); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  #stateLabel { font-weight: 800; font-size: 14px; flex: 1; margin-right: 10px; }
+  #status { color: var(--muted); margin-top: 6px; min-height: 18px; word-break: break-word; }
+  .stat { text-align: center; }
+  .stat b { display: block; font-size: 26px; color: var(--light); text-shadow: 0 0 12px rgba(154,61,255,.6); line-height: 1.1; }
+  .stat span { font-size: 10px; color: var(--muted); }
+
+  /* sections */
+  .sec { color: var(--light); font-size: 11px; font-weight: 700; letter-spacing: .2em; margin: 16px 2px 8px; display: flex; align-items: center; cursor: pointer; }
+  .sec:before { content: ""; width: 7px; height: 7px; background: var(--light); transform: rotate(45deg); margin-left: 9px; box-shadow: 0 0 6px var(--purple); }
+  .sec .chev { margin-right: auto; color: var(--muted); transition: transform .2s; }
+  .sec.closed .chev { transform: rotate(90deg); }
+  .sec.closed + .card { display: none; }
+
+  label { display: block; color: var(--muted); font-size: 10.5px; font-weight: 700; letter-spacing: .08em; margin: 10px 0 5px; }
+  label:first-child { margin-top: 0; }
+  .field { background: var(--line); padding: 1px; clip-path: var(--cut); }
+  .field:focus-within { background: var(--purple); }
+  .field input, .field select {
+    width: 100%; height: 36px; border: 0; outline: none; padding: 0 11px; background: var(--input); clip-path: var(--cut);
+    direction: ltr; text-align: left;
+  }
+  .field select { appearance: none; -webkit-appearance: none; direction: rtl; text-align: right; cursor: pointer; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .winrow { display: flex; gap: 8px; }
+  .winrow .field { flex: 1; }
+
+  .btn {
+    height: 36px; padding: 0 16px; border: 0; cursor: pointer; font-weight: 700; letter-spacing: .08em; white-space: nowrap;
+    background: var(--input); color: var(--light); clip-path: var(--slant); box-shadow: inset 0 0 0 1px #3a2560;
+    transition: background .15s, color .15s;
+  }
+  .btn:hover { background: #2a1645; color: #fff; }
+  .btn.wide { width: 100%; margin-top: 10px; }
+  .hint { color: var(--muted); font-size: 11px; margin-top: 6px; }
+  .hint b { color: var(--light); }
+
+  footer { flex: none; display: flex; align-items: center; justify-content: space-between; height: 28px; padding: 0 12px;
+    border-top: 1px solid #2a1a45; background: var(--panel2); color: var(--muted); font-size: 10px; letter-spacing: .15em; }
+  #upd { display: none; color: var(--warn); cursor: pointer; font-weight: 700; letter-spacing: 0; }
+
+  /* permission gate */
+  #gate { position: fixed; inset: 0; z-index: 30; display: none; flex-direction: column; justify-content: center; padding: 22px;
+    background: rgba(12,5,22,.97); }
+  #gate.show { display: flex; }
+  .step { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #23143a; }
+  .step:last-of-type { border-bottom: 0; }
+  .step .n { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-weight: 800;
+    background: #23143a; color: var(--light); transform: skewX(-12deg); flex: none; }
+  .step.done .n { background: var(--ok); color: #08140d; }
+  .step .t { flex: 1; } .step .t b { display: block; } .step .t span { color: var(--muted); font-size: 11px; }
+
+  .toast { position: fixed; left: 14px; right: 14px; bottom: 40px; z-index: 40; padding: 9px 12px; text-align: center;
+    background: #170c28; border-right: 3px solid var(--purple); box-shadow: 0 6px 20px rgba(0,0,0,.5);
+    opacity: 0; transform: translateY(6px); pointer-events: none; transition: opacity .18s, transform .18s; }
+  .toast.show { opacity: 1; transform: none; }
+  .toast.ok { border-right-color: var(--ok); color: #b6f2cb; } .toast.err { border-right-color: var(--bad); color: #ffc1c4; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand en">Saad</div>
+  <div class="title en">Shard Sniper</div>
+  <div class="tag en"><i></i>Last Z · S-Rank Hunter<i></i></div>
+</header>
+
+<main>
+  <div class="hero"><button id="go" class="en">Start</button></div>
+
+  <div class="card"><div class="in">
+    <div class="row">
+      <div class="dot" id="dot"></div>
+      <div id="stateLabel">واقف</div>
+      <div class="stat"><b id="found">0</b><span>شاحنات S</span></div>
+    </div>
+    <div id="status">—</div>
+  </div></div>
+
+  <div class="sec" data-sec="game">نافذة اللعبة <span class="chev">‹</span></div>
+  <div class="card"><div class="in">
+    <div class="winrow">
+      <div class="field"><select id="window_id"></select></div>
+      <button class="btn" id="refreshWins">تحديث</button>
+    </div>
+    <div class="hint">افتح Last Z في <b>BlueStacks</b> أو <b>تطبيق الآيفون</b> أو أي محاكي. التطبيق بيختار النافذة لوحده، أو اختارها من هنا.</div>
+  </div></div>
+
+  <div class="sec" data-sec="conn">الاتصالات <span class="chev">‹</span></div>
+  <div class="card"><div class="in">
+    <label>مفتاح Gemini API</label>
+    <div class="field"><input id="gemini_key" type="password" spellcheck="false"></div>
+    <label>لينك Discord Webhook</label>
+    <div class="field"><input id="discord_webhook" type="password" spellcheck="false"></div>
+    <button class="btn wide" id="testDiscord">تجربة Discord</button>
+    <label>موديل Gemini · auto = تلقائي</label>
+    <div class="field"><input id="gemini_model" spellcheck="false"></div>
+    <label>Telegram Bot Token · اختياري</label>
+    <div class="field"><input id="tg_token" type="password" spellcheck="false"></div>
+    <label>Telegram Chat ID · اختياري</label>
+    <div class="field"><input id="tg_chat" spellcheck="false"></div>
+  </div></div>
+
+  <div class="sec" data-sec="tgt">الأهداف <span class="chev">‹</span></div>
+  <div class="card"><div class="in">
+    <div class="two">
+      <div><label>من سيرفر</label><div class="field"><input id="server_from" type="number"></div></div>
+      <div><label>لحد سيرفر</label><div class="field"><input id="server_to" type="number"></div></div>
+    </div>
+    <label>سيرفرات مستثناة · افصل بفاصلة</label>
+    <div class="field"><input id="excluded"></div>
+    <div class="two">
+      <div><label>أقل شظايا S</label><div class="field"><input id="min_fragments" type="number" min="0"></div></div>
+      <div><label>ثواني بين الخطوات</label><div class="field"><input id="interval" type="number" min="3"></div></div>
+    </div>
+    <button class="btn wide" id="reset">مسح الشاحنات المحفوظة</button>
+  </div></div>
+</main>
+
+<footer><span class="en" id="ver">v1</span><span id="upd"></span><span class="en">Saad</span></footer>
+
+<div id="gate">
+  <div class="card"><div class="in">
+    <div class="en" style="color:var(--light);font-size:11px;font-weight:700">One-time setup</div>
+    <div style="font-size:20px;font-weight:800;margin:6px 0 4px;text-shadow:0 0 10px rgba(154,61,255,.8)">تفعيل مرة واحدة</div>
+    <div class="hint" style="margin-bottom:6px">الماك محتاج إذنين عشان البوت يشوف اللعبة ويضغط جواها. بعد ما تفعّل، اقفل التطبيق وافتحه تاني.</div>
+    <div class="step" id="stScreen"><div class="n">1</div><div class="t"><b>تسجيل الشاشة</b><span>عشان يشوف نافذة اللعبة</span></div><button class="btn" id="askScreen">تفعيل</button></div>
+    <div class="step" id="stAx"><div class="n">2</div><div class="t"><b>إمكانية الوصول</b><span>عشان يضغط جوا اللعبة</span></div><button class="btn" id="askAx">تفعيل</button></div>
+    <div class="hint">إعدادات النظام ← الخصوصية والأمان ← فعّل <b>Saad Shard Sniper</b> في الاتنين.</div>
+  </div></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const FIELDS = ["gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat",
+                "server_from", "server_to", "excluded", "min_fragments", "interval", "window_id"];
+let api, saveTimer;
+
+function toast(msg, kind) {
+  const t = $("toast"); t.textContent = msg; t.className = "toast show " + (kind || "");
+  clearTimeout(t._h); t._h = setTimeout(() => t.className = "toast", 2600);
+}
+
+const LABELS = { running: "شغال", stopped: "واقف", paused: "متوقف مؤقتاً", error: "فيه مشكلة" };
+window.onState = s => {
+  $("dot").className = "dot " + s.state;
+  $("stateLabel").textContent = LABELS[s.state] || s.state;
+  $("status").textContent = s.status || "—";
+  $("found").textContent = s.found;
+  $("go").textContent = s.running ? "STOP" : "START";
+  $("go").classList.toggle("on", s.running);
+  showGate(!(s.screen_ok && s.ax_ok), s);
+};
+
+function showGate(show, s) {
+  $("gate").classList.toggle("show", show);
+  if (s) { $("stScreen").classList.toggle("done", s.screen_ok); $("stAx").classList.toggle("done", s.ax_ok); }
+}
+
+async function loadWindows(selected) {
+  const wins = await api.list_windows();
+  const sel = $("window_id");
+  sel.innerHTML = '<option value="0">تلقائي — أحسن نافذة للعبة</option>' +
+    wins.map(w => `<option value="${w.id}">${w.score ? "★ " : ""}${w.label.replace(/</g, "&lt;")}</option>`).join("");
+  sel.value = String(selected || 0);
+  if (sel.value === "") sel.value = "0";
+}
+
+function collect() {
+  const v = {};
+  FIELDS.forEach(k => v[k] = $(k).value);
+  return v;
+}
+function autosave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => api.save_config(collect()), 400);
+}
+
+async function init() {
+  api = window.pywebview.api;
+  const all = await api.get_all();
+  $("ver").textContent = "v" + all.version;
+  FIELDS.forEach(k => { if (k !== "window_id") $(k).value = all.config[k] ?? ""; });
+  await loadWindows(all.config.window_id);
+  onState(all.state);
+
+  FIELDS.forEach(k => $(k).addEventListener(k === "window_id" ? "change" : "input", autosave));
+  $("go").onclick = async () => {
+    await api.save_config(collect());
+    const running = $("go").classList.contains("on");
+    onState(running ? await api.stop() : await api.start());
+  };
+  $("refreshWins").onclick = () => loadWindows($("window_id").value);
+  $("testDiscord").onclick = async () => {
+    await api.save_config(collect());
+    const r = await api.test_discord();
+    r === "ok" ? toast("اتبعتت، شوف Discord", "ok") : toast(r, "err");
+  };
+  $("reset").onclick = async () => { await api.reset_seen(); toast("اتمسح", "ok"); };
+  $("askScreen").onclick = () => api.ask_screen();
+  $("askAx").onclick = () => api.ask_ax();
+  document.querySelectorAll(".sec").forEach(s => {
+    const key = "sec_" + s.dataset.sec;
+    if (localStorage.getItem(key) === "closed") s.classList.add("closed");
+    s.onclick = () => { s.classList.toggle("closed"); localStorage.setItem(key, s.classList.contains("closed") ? "closed" : "open"); };
+  });
+
+  // re-check permissions every few seconds while the gate is showing
+  setInterval(async () => {
+    if (!$("gate").classList.contains("show")) return;
+    const p = await api.permissions();
+    showGate(!(p.screen && p.ax), { screen_ok: p.screen, ax_ok: p.ax });
+  }, 2500);
+
+  const u = await api.check_update();
+  if (u) { const e = $("upd"); e.textContent = "⬆ تحديث جديد v" + u.version; e.style.display = "inline"; e.onclick = () => api.open_url(u.url); }
+}
+window.addEventListener("pywebviewready", init);
+</script>
+</body>
+</html>
