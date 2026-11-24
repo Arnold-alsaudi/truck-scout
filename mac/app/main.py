@@ -1,8 +1,10 @@
 """Saad Shard Sniper for Mac: a small always-handy window that runs the truck scout on the Last Z window."""
+import hashlib
 import json
 import os
 import sys
 import threading
+import time
 
 import webview
 
@@ -11,6 +13,9 @@ import macos
 import net
 
 VERSION = 1  # bumped by the release workflow tag mac-v<N>
+CLIENT_ID = "client1"      # this copy's entry in license.json (owner controls it with license.ps1)
+LICENSE_EVERY = 10 * 60    # seconds between license checks
+OFFLINE_GRACE = 48 * 3600  # how long the app keeps working without reaching the license file
 
 
 def resource(path):
@@ -24,6 +29,67 @@ class Api:
     def __init__(self):
         self.window = None
         self.engine = engine.Engine(self._push)
+        self._lic = {"status": "active", "message": ""}
+        threading.Thread(target=self._license_loop, daemon=True).start()
+
+    # ---- license (owner can lock with a password or disable this copy remotely)
+    def _license_now(self):
+        c = self.engine.cfg
+        now = time.time()
+        remote = net.fetch_license(CLIENT_ID)
+        if remote is not None:
+            c["lic"] = remote
+            c["lic_checked"] = now
+            c.save()
+        elif now - float(c.get("lic_checked") or 0) > OFFLINE_GRACE:
+            return {"status": "offline", "message": "لازم تتصل بالإنترنت عشان التطبيق يتحقق من الترخيص."}
+        lic = c.get("lic") or {}
+        status = str(lic.get("status") or "active").lower()
+        msg = str(lic.get("message") or "")
+        if status == "disabled":
+            return {"status": "disabled", "message": msg or "النسخة دي موقوفة. تواصل مع المطور."}
+        if status == "locked":
+            want = str(lic.get("pass_sha256") or "").lower()
+            if want and c.get("unlock_hash") == want:
+                return {"status": "active", "message": ""}
+            return {"status": "locked", "message": msg or "التطبيق مقفول. اكتب الباسورد اللي استلمته من المطور."}
+        return {"status": "active", "message": ""}
+
+    def _license_loop(self):
+        while True:
+            try:
+                self._apply_license(self._license_now())
+            except Exception:
+                pass
+            time.sleep(LICENSE_EVERY)
+
+    def _apply_license(self, lic):
+        self._lic = lic
+        if lic["status"] != "active" and self.engine.running:
+            self.engine.stop()
+        if self.window:
+            self.window.evaluate_js("window.onLicense && onLicense(%s)" % json.dumps(lic, ensure_ascii=False))
+
+    def license(self):
+        """Checks right now (called when the window opens) and returns the result."""
+        try:
+            self._lic = self._license_now()
+        except Exception:
+            pass
+        if self._lic["status"] != "active" and self.engine.running:
+            self.engine.stop()
+        return self._lic
+
+    def unlock(self, password):
+        lic = self.engine.cfg.get("lic") or {}
+        want = str(lic.get("pass_sha256") or "").lower()
+        got = hashlib.sha256(str(password).strip().encode("utf-8")).hexdigest()
+        if want and got == want:
+            self.engine.cfg["unlock_hash"] = got
+            self.engine.cfg.save()
+            self._apply_license({"status": "active", "message": ""})
+            return True
+        return False
 
     def _push(self, state):
         if self.window:
@@ -70,6 +136,9 @@ class Api:
 
     # ---- run
     def start(self):
+        if self._lic.get("status") != "active":
+            self._apply_license(self._lic)
+            return self.engine.snapshot()
         self.engine.start()
         return self.engine.snapshot()
 
@@ -115,6 +184,7 @@ def main():
         print("ui:", os.path.exists(resource(os.path.join("ui", "index.html"))))
         print("windows:", len(macos.list_windows()))
         print("screen:", macos.has_screen_recording(), "ax:", macos.has_accessibility())
+        print("license:", net.fetch_license(CLIENT_ID))
         print("selftest ok")
         return
     api = Api()
