@@ -124,19 +124,13 @@ def activate(pid_or_hwnd, hwnd=None):
         fg = user32.GetForegroundWindow()
         if fg == h:
             return
-        # Windows only lets the foreground thread hand over focus: join its input queue for a moment
-        me = kernel32.GetCurrentThreadId()
-        fg_thread = user32.GetWindowThreadProcessId(fg, None)
-        target_thread = user32.GetWindowThreadProcessId(h, None)
-        user32.AttachThreadInput(me, fg_thread, True)
-        user32.AttachThreadInput(me, target_thread, True)
-        user32.keybd_event(0x12, 0, 0, 0)        # tiny Alt tap also unlocks SetForegroundWindow
+        # No AttachThreadInput: when our own window is in front, joining its input queue from this worker
+        # thread froze the app's UI and Windows closed it ("not responding"). A tiny Alt tap is enough to let
+        # SetForegroundWindow work.
+        user32.keybd_event(0x12, 0, 0, 0)
         user32.keybd_event(0x12, 0, 2, 0)
-        user32.BringWindowToTop(h)
         user32.SetForegroundWindow(h)
-        user32.SetFocus(h)
-        user32.AttachThreadInput(me, target_thread, False)
-        user32.AttachThreadInput(me, fg_thread, False)
+        user32.BringWindowToTop(h)
     except Exception:
         pass
 
