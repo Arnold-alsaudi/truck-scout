@@ -10,6 +10,7 @@ import webview
 
 import engine
 import osapi as macos
+import self_update
 import net
 
 VERSION = 1  # bumped by the release workflow tag mac-v<N>
@@ -187,11 +188,43 @@ class Api:
             return net.short_error(str(e))
 
     def check_update(self):
+        """A newer release (forced update), or None. Stops the bot while an update is pending."""
         try:
             r = net.newer_release(VERSION, macos.PLATFORM + "-v")
         except Exception:
             r = None
-        return {"version": r[0], "url": r[1]} if r else None
+        if not r:
+            return None
+        self._update = r
+        if self.engine.running:
+            self.engine.stop()
+        asset = self_update.pick_asset(r[2], macos.PLATFORM)
+        return {"version": r[0], "url": r[1], "auto": bool(asset and self_update.frozen())}
+
+    def do_update(self):
+        """Downloads and installs the pending update, then quits so the script can swap the app and reopen it."""
+        r = getattr(self, "_update", None)
+        if not r:
+            return "مفيش تحديث"
+        url = self_update.pick_asset(r[2], macos.PLATFORM)
+        if not url or not self_update.frozen():
+            macos.open_url(r[1])
+            return "open"
+        try:
+            self_update.install(url, macos.PLATFORM)
+        except Exception as e:
+            return "فشل التحديث: " + net.short_error(str(e))
+        threading.Timer(0.8, lambda: os._exit(0)).start()
+        return "ok"
+
+    def updated_note(self):
+        """Version number if this is the first start after an update (to show 'updated'), else 0."""
+        c = self.engine.cfg
+        last = int(c.get("last_version") or 0)
+        if last != VERSION:
+            c["last_version"] = VERSION
+            c.save()
+        return VERSION if 0 < last < VERSION else 0
 
     def open_url(self, url):
         macos.open_url(url)
