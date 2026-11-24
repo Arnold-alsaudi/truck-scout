@@ -102,14 +102,14 @@ class Api:
             "version": VERSION,
             "platform": macos.PLATFORM,
             "state": self.engine.snapshot(),
-            "config": {k: c[k] for k in ("gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat",
+            "config": {k: c[k] for k in ("ai_provider", "claude_key", "gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat",
                                          "server_from", "server_to", "excluded", "min_fragments", "interval",
                                          "window_id")},
         }
 
     def save_config(self, values):
         c = self.engine.cfg
-        for k in ("gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat", "excluded"):
+        for k in ("ai_provider", "claude_key", "gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat", "excluded"):
             if k in values:
                 c[k] = str(values[k]).strip()
         for k in ("server_from", "server_to", "min_fragments", "interval", "window_id"):
@@ -158,8 +158,25 @@ class Api:
         macos.ask_accessibility()
 
     # ---- tests & updates
-    def test_discord(self):
-        url = self.engine.cfg["discord_webhook"]
+    def test_ai(self):
+        """One tiny request to the chosen AI to prove the key works."""
+        e = self.engine
+        if not e._key():
+            return "حط المفتاح الأول"
+        try:
+            if e._provider() == "claude":
+                import anthropic
+                client = anthropic.Anthropic(api_key=e.cfg["claude_key"], timeout=30.0)
+                r = client.messages.create(model=e.cfg.get("claude_model") or net.CLAUDE_MODEL, max_tokens=256,
+                                           output_config={"effort": "low"},
+                                           messages=[{"role": "user", "content": "Reply with the word OK."}])
+                return "ok:Claude (%s)" % r.model
+            net.pick_flash_model(e.cfg["gemini_key"])
+            return "ok:Gemini"
+        except Exception as ex:
+            return net.short_error(str(getattr(ex, "message", ex)))
+
+    def test_discord(self):        url = self.engine.cfg["discord_webhook"]
         if not url:
             return "حط لينك Discord الأول"
         try:
