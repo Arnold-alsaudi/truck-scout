@@ -176,7 +176,8 @@ class Api:
         except Exception as ex:
             return net.short_error(str(getattr(ex, "message", ex)))
 
-    def test_discord(self):        url = self.engine.cfg["discord_webhook"]
+    def test_discord(self):
+        url = self.engine.cfg["discord_webhook"]
         if not url:
             return "حط لينك Discord الأول"
         try:
