@@ -1,9 +1,9 @@
 {
     "clients":  {
                     "client1":  {
-                                    "status":  "locked",
+                                    "status":  "active",
                                     "pass_sha256":  "c5a5fc5f3ec2c639d6c947ae4994c86624a6b9bc1513f704c50ae2acd9b445c9",
-                                    "message":  "اختبار: التطبيق مقفول لحد ما تكتب الباسورد"
+                                    "message":  ""
                                 }
                 }
 }
