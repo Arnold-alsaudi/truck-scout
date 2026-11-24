@@ -157,6 +157,7 @@ class Engine:
         self._last_mouse = None
         self._pending = None
         self._prev_thumb, self._acted, self._stuck = None, False, 0
+        self._opened, self._yellow = [], []
         self._watch_prev, self._watch_last_ask = None, 0.0
         self._set("running", ("بيراقب: " if watch else "شغال على: ") + (self.window_label or "نافذة اللعبة")
                   + (" · ⚠ التنبيهات مقفولة: حط لينك Discord" if no_alerts else "") + perm_note)
@@ -222,7 +223,10 @@ class Engine:
                 self._handle_trucks(ans.get("trucks") or [], win)
                 self._after_step(ans)
                 screen = str(ans.get("screen", "?"))
-                act = ans.get("action") or {}
+                rxy = ans.get("refresh_xy") or []
+                if isinstance(rxy, list) and len(rxy) == 2:
+                    self._refresh_xy = (float(rxy[0]), float(rxy[1]))
+                act = self._drive_trucks(ans.get("action") or {})
                 done = self._act(act, win)
                 self._note_opened(act)
                 self._acted = done.split(" ")[0] in ("tap", "swipe", "back")
@@ -260,6 +264,23 @@ class Engine:
             if abs(yx - x) < 60 and abs(yy - y) < 60:
                 self._opened = (getattr(self, "_opened", []) + [(yx, yy)])[-20:]
 
+    def _drive_trucks(self, ai_action):
+        """On the trucks road the CODE decides: open the next unopened yellow truck, or press Refresh when all
+        were opened. The AI only reads cards (and handles the Share popup for a found S truck)."""
+        if self._pending:                       # getting coordinates through Share: let the AI do that
+            return ai_action
+        ys = [p for p in getattr(self, "_yellow", []) if p[1] < 720]  # never near the card's Plunder! button
+        opened = getattr(self, "_opened", [])
+        if not ys:
+            return ai_action                    # not on the road (or a popup covers it): AI navigates
+        fresh = [p for p in ys if not any(abs(p[0] - ox) < 60 and abs(p[1] - oy) < 60 for ox, oy in opened)]
+        if fresh:
+            x, y = fresh[0]
+            return {"type": "tap", "x": x, "y": y, "target": "yellow truck at %d,%d (code)" % (x, y)}
+        rxy = getattr(self, "_refresh_xy", None)
+        if rxy:
+            return {"type": "tap", "x": rxy[0], "y": rxy[1], "target": "Refresh dice (code)"}
+        return ai_action                        # Refresh not located yet: AI's choice this time
     def _snap_to_yellow(self, a):
         """When the AI taps a truck, the bot itself taps the middle of the nearest yellow (S) truck that wasn't
         opened yet - so a green/white/blue truck (or an avatar sitting over one) can never be opened."""
@@ -267,6 +288,8 @@ class Engine:
         if not ys:
             return ""
         tgt = str(a.get("target", "")).lower()
+        if "(code)" in tgt:
+            return ""
         if not any(w in tgt for w in ("truck", "avatar", "yellow", "player", "name tag", "card of")):
             return ""  # buttons, Refresh, Share, X, tabs... are left as the AI chose
         if any(w in tgt for w in ("refresh", "share", "close", " x", "tab", "back", "my truck", "others")):
@@ -616,6 +639,7 @@ class Engine:
             "\"arrival\": \"04:23:10\", \"coords\": \"X:123 Y:456 if shown on the card, else empty\", "
             "\"rewards\": \"short list\"} ],\n"
             " \"map_coords\": \"X:123 Y:456 if a world map with coordinates is shown, else empty\",\n"
+            " \"refresh_xy\": [x, y] of the \"Refresh\" dice button if it is visible (0-1000), else [],\n"
             " \"action\": {\"type\": \"tap|swipe|back|wait\", \"x\": 0-1000, \"y\": 0-1000, \"x2\": 0-1000, \"y2\": 0-1000, "
             "\"target\": \"what you click\"}}\n"
             "x,y are 0-1000 of the screenshot width/height."
