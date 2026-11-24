@@ -274,5 +274,13 @@ def newer_release(current_version, prefix="mac-v"):
     for rel in json.loads(resp):
         m = re.match(re.escape(prefix) + r"(\d+)$", rel.get("tag_name", ""))
         if m and int(m.group(1)) > current_version and (best is None or int(m.group(1)) > best[0]):
-            best = (int(m.group(1)), rel.get("html_url"))
+            assets = [(a.get("name", ""), a.get("browser_download_url", "")) for a in rel.get("assets") or []]
+            best = (int(m.group(1)), rel.get("html_url"), assets)
     return best
+
+
+def download(url, timeout=180):
+    """Downloads a release file (follows GitHub's redirects). Returns bytes."""
+    req = urllib.request.Request(url, headers={"User-Agent": "SaadShardSniper-updater"})
+    with urllib.request.urlopen(req, timeout=timeout, context=_SSL) as r:
+        return r.read()
