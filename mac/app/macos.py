@@ -85,7 +85,60 @@ def window_info(win_id):
 def activate(pid):
     app = NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
     if app is not None:
-        app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
+        try:
+            app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
+        except Exception:
+            pass
+
+
+def frontmost_pid():
+    try:
+        from AppKit import NSWorkspace
+        return int(NSWorkspace.sharedWorkspace().frontmostApplication().processIdentifier())
+    except Exception:
+        return -1
+
+
+def _window_at(x, y):
+    """PID of the app whose window is on top at screen point (x, y)."""
+    infos = Quartz.CGWindowListCopyWindowInfo(
+        Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements, Quartz.kCGNullWindowID) or []
+    for w in infos:  # front-to-back order
+        if w.get("kCGWindowLayer", 0) != 0:
+            continue
+        b = w.get("kCGWindowBounds", {}) or {}
+        if b.get("X", 0) <= x <= b.get("X", 0) + b.get("Width", 0) and b.get("Y", 0) <= y <= b.get("Y", 0) + b.get("Height", 0):
+            return int(w.get("kCGWindowOwnerPID", -1)), int(w.get("kCGWindowNumber", -1)), str(w.get("kCGWindowOwnerName", ""))
+    return -1, -1, ""
+
+
+def ensure_front(win):
+    """Makes the game the active app so clicks reach it. macOS 14+ often ignores activate() from a
+    background app, and the first click on an inactive window only focuses it, so if the game still
+    isn't in front we click its title bar once (harmless) to give it focus. Returns True when ready."""
+    pid = int(win["pid"])
+    if frontmost_pid() == pid:
+        return True
+    activate(pid)
+    time.sleep(0.3)
+    if frontmost_pid() == pid:
+        return True
+    # focus click on the title bar (top 10 px of the window frame, centre)
+    tx, ty = win["x"] + win["w"] / 2, win["y"] + 8
+    top_pid, _, _ = _window_at(tx, ty)
+    if top_pid == pid:
+        _post(Quartz.kCGEventMouseMoved, tx, ty)
+        time.sleep(0.05)
+        _post(Quartz.kCGEventLeftMouseDown, tx, ty)
+        time.sleep(0.06)
+        _post(Quartz.kCGEventLeftMouseUp, tx, ty)
+        time.sleep(0.35)
+    return frontmost_pid() == pid
+
+
+def covering_title(win):
+    _, _, owner = _window_at(win["x"] + win["w"] / 2, win["y"] + win["h"] / 2)
+    return owner
 
 
 # ---------------------------------------------------------------- capture
