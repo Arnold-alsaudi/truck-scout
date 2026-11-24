@@ -234,6 +234,13 @@ def telegram(token, chat, text, jpeg=None):
 def fetch_license(client_id):
     """The owner's license entry for this client from license.json in the repo.
     Returns a dict (status/pass_sha256/message), {} if the client has no entry, or None if offline."""
+    try:
+        return _fetch_license(client_id)
+    except Exception:  # no internet / timeout / DNS: treat as offline (48h grace applies)
+        return None
+
+
+def _fetch_license(client_id):
     code, resp = _request("https://api.github.com/repos/%s/contents/license.json?ref=main&t=%d"
                           % (UPDATE_REPO, int(time.time())),
                           headers={"Accept": "application/vnd.github.raw+json", "Cache-Control": "no-cache"},
@@ -256,8 +263,11 @@ def fetch_license(client_id):
 
 def newer_release(current_version, prefix="mac-v"):
     """Returns (version, page_url) of a newer release with tags <prefix><N>, or None."""
-    code, resp = _request("https://api.github.com/repos/%s/releases?per_page=30" % UPDATE_REPO,
-                          headers={"Accept": "application/vnd.github+json"}, timeout=20)
+    try:
+        code, resp = _request("https://api.github.com/repos/%s/releases?per_page=30" % UPDATE_REPO,
+                              headers={"Accept": "application/vnd.github+json"}, timeout=20)
+    except Exception:  # offline: just no update offer
+        return None
     if code != 200:
         return None
     best = None
