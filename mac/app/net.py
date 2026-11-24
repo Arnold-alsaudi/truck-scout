@@ -194,15 +194,15 @@ def fetch_license(client_id):
 
 # ---------------------------------------------------------------- updates
 
-def newer_mac_release(current_version):
-    """Returns (version, page_url) of a newer Mac release, or None."""
+def newer_release(current_version, prefix="mac-v"):
+    """Returns (version, page_url) of a newer release with tags <prefix><N>, or None."""
     code, resp = _request("https://api.github.com/repos/%s/releases?per_page=30" % UPDATE_REPO,
                           headers={"Accept": "application/vnd.github+json"}, timeout=20)
     if code != 200:
         return None
     best = None
     for rel in json.loads(resp):
-        m = re.match(r"mac-v(\d+)$", rel.get("tag_name", ""))
+        m = re.match(re.escape(prefix) + r"(\d+)$", rel.get("tag_name", ""))
         if m and int(m.group(1)) > current_version and (best is None or int(m.group(1)) > best[0]):
             best = (int(m.group(1)), rel.get("html_url"))
     return best
