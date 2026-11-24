@@ -7,6 +7,7 @@ screen points here.
 import os
 import random
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -244,6 +245,52 @@ def ask_accessibility():
     if AS is not None:
         AS.AXIsProcessTrustedWithOptions({AS.kAXTrustedCheckOptionPrompt: True})
     open_settings("Privacy_Accessibility")
+
+
+BUNDLE_ID = "com.saad.shardsniper"
+
+
+def _bundle_path():
+    exe = os.path.realpath(sys.executable)
+    marker = ".app/Contents/MacOS/"
+    return exe[:exe.index(marker) + 4] if marker in exe else None
+
+
+def fix_install_location():
+    """If the app runs from Downloads / a translocated copy, macOS never keeps its permissions.
+    Copy it to /Applications, clear the 'downloaded from internet' flag, reopen from there.
+    Returns True when the app is restarting (the caller should quit)."""
+    bundle = _bundle_path()
+    if not bundle or bundle.startswith("/Applications/"):
+        if bundle:
+            subprocess.run(["xattr", "-cr", bundle], capture_output=True)
+        return False
+    target = "/Applications/Saad Shard Sniper.app"
+    try:
+        subprocess.run(["rm", "-rf", target], capture_output=True)
+        r = subprocess.run(["ditto", bundle, target], capture_output=True)
+        if r.returncode != 0:
+            return False
+        subprocess.run(["xattr", "-cr", target], capture_output=True)
+        subprocess.Popen(["/bin/sh", "-c", 'sleep 1; open "%s"' % target], start_new_session=True)
+        return True
+    except Exception:
+        return False
+
+
+def reset_and_request_permissions(need_accessibility=True):
+    """Clears stale permission entries left by older versions (they make the switch refuse to stay on),
+    then asks macOS to show its permission prompts again."""
+    if not has_screen_recording():
+        subprocess.run(["tccutil", "reset", "ScreenCapture", BUNDLE_ID], capture_output=True)
+        try:
+            Quartz.CGRequestScreenCaptureAccess()
+        except AttributeError:
+            pass
+    if need_accessibility and not has_accessibility():
+        subprocess.run(["tccutil", "reset", "Accessibility", BUNDLE_ID], capture_output=True)
+        if AS is not None:
+            AS.AXIsProcessTrustedWithOptions({AS.kAXTrustedCheckOptionPrompt: True})
 
 
 def open_settings(pane):
