@@ -6,6 +6,10 @@ on:
       version:
         description: "Mac version number (release tag mac-v<N>)"
         required: true
+      only:
+        description: "Build only this arch (apple-silicon / intel), empty = both"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -16,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15
+          - runner: macos-14
             arch: apple-silicon
           - runner: macos-15-intel
             arch: intel
