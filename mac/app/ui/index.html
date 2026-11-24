@@ -157,7 +157,7 @@
       <div class="field"><select id="window_id"></select></div>
       <button class="btn" id="refreshWins">تحديث</button>
     </div>
-    <div class="hint">افتح Last Z في <b>BlueStacks</b> أو <b>تطبيق الآيفون</b> أو أي محاكي. التطبيق بيختار النافذة لوحده، أو اختارها من هنا.</div>
+    <div class="hint" id="winHint">افتح Last Z في <b>BlueStacks</b> أو <b>تطبيق الآيفون</b> أو أي محاكي. التطبيق بيختار النافذة لوحده، أو اختارها من هنا.</div>
   </div></div>
 
   <div class="sec" data-sec="conn">الاتصالات <span class="chev">‹</span></div>
@@ -278,7 +278,8 @@ window.onLicense = l => {
 async function init() {
   api = window.pywebview.api;
   const all = await api.get_all();
-  $("ver").textContent = "v" + all.version;
+  $("ver").textContent = "v" + all.version + (all.platform === "win" ? " · WINDOWS" : " · MAC");
+  if (all.platform === "win") $("winHint").innerHTML = "افتح Last Z في <b>BlueStacks</b> أو <b>LDPlayer</b> أو <b>MuMu</b>. التطبيق بيختار النافذة لوحده، أو اختارها من هنا. خلي نافذة المحاكي ظاهرة ومش متصغرة.";
   FIELDS.forEach(k => { if (k !== "window_id") $(k).value = all.config[k] ?? ""; });
   await loadWindows(all.config.window_id);
   onState(all.state);
