@@ -130,6 +130,9 @@
   .step.done .n { background: var(--ok); color: #08140d; }
   .step .t { flex: 1; } .step .t b { display: block; } .step .t span { color: var(--muted); font-size: 11px; }
 
+  #force, #updated { position: fixed; inset: 0; z-index: 38; display: none; flex-direction: column; justify-content: center; padding: 22px; background: rgba(12,5,22,.97); }
+  #force { z-index: 40; }
+  #force.show, #updated.show { display: flex; }
   #lock { position: fixed; inset: 0; z-index: 35; display: none; flex-direction: column; justify-content: center; padding: 22px;
     background: rgba(12,5,22,.97); }
   #lock.show { display: flex; }
@@ -227,6 +230,25 @@
     <div class="step" id="stScreen"><div class="n">1</div><div class="t"><b>تسجيل الشاشة</b><span>عشان يشوف نافذة اللعبة</span></div><button class="btn" id="askScreen">تفعيل</button></div>
     <div class="step" id="stAx"><div class="n">2</div><div class="t"><b>إمكانية الوصول</b><span>عشان يضغط جوا اللعبة</span></div><button class="btn" id="askAx">تفعيل</button></div>
     <div class="hint">إعدادات النظام ← الخصوصية والأمان ← فعّل <b>Saad Shard Sniper</b> في الاتنين.</div>
+  </div></div>
+</div>
+
+<div id="force">
+  <div class="card"><div class="in" style="text-align:center">
+    <div class="lockicon">⬆</div>
+    <div class="en" style="color:var(--light);font-size:11px;font-weight:700">UPDATE REQUIRED</div>
+    <div style="font-size:20px;font-weight:800;margin:6px 0 8px;text-shadow:0 0 10px rgba(154,61,255,.8)">تحديث إجباري <span id="forceVer" class="en"></span></div>
+    <div class="hint" id="forceMsg" style="font-size:13px">فيه نسخة جديدة لازم تتثبت عشان التطبيق يشتغل. هتتنزل وتتثبت لوحدها، والتطبيق هيقفل ويفتح تاني.</div>
+    <button class="btn wide" id="forceBtn" style="background:linear-gradient(135deg,#a64dff,var(--deep));color:#fff;box-shadow:none;height:44px">تحديث الآن</button>
+  </div></div>
+</div>
+
+<div id="updated">
+  <div class="card"><div class="in" style="text-align:center">
+    <div class="lockicon">✓</div>
+    <div style="font-size:20px;font-weight:800;margin:6px 0 8px;color:var(--ok)">تم التحديث لـ <span id="doneVer" class="en"></span></div>
+    <div class="hint" style="font-size:13px">التطبيق اتحدث بنجاح. لو الماك طلب الأذونات تاني، فعّلها.</div>
+    <button class="btn wide" id="updatedOk">تمام</button>
   </div></div>
 </div>
 
@@ -359,8 +381,22 @@ async function init() {
     showGate(!(p.screen && p.ax), { screen_ok: p.screen, ax_ok: p.ax });
   }, 2500);
 
-  const u = await api.check_update();
-  if (u) { const e = $("upd"); e.textContent = "⬆ تحديث جديد v" + u.version; e.style.display = "inline"; e.onclick = () => api.open_url(u.url); }
+  const n = await api.updated_note();
+  if (n) { $("doneVer").textContent = "v" + n; $("updated").classList.add("show"); }
+  $("updatedOk").onclick = () => $("updated").classList.remove("show");
+  $("forceBtn").onclick = async () => {
+    $("forceBtn").disabled = true; $("forceBtn").textContent = "بينزّل التحديث…";
+    const r = await api.do_update();
+    if (r === "ok") { $("forceMsg").textContent = "بيتثبت… التطبيق هيقفل ويفتح لوحده"; }
+    else if (r === "open") { $("forceMsg").textContent = "حمّل النسخة الجديدة من الصفحة اللي اتفتحت وثبتها"; $("forceBtn").disabled = false; $("forceBtn").textContent = "تحديث الآن"; }
+    else { toast(r, "err"); $("forceBtn").disabled = false; $("forceBtn").textContent = "تحديث الآن"; }
+  };
+  const checkForced = async () => {
+    const u = await api.check_update();
+    if (u) { $("forceVer").textContent = "v" + u.version; $("force").classList.add("show"); }
+  };
+  await checkForced();
+  setInterval(checkForced, 30 * 60 * 1000);
 }
 window.addEventListener("pywebviewready", init);
 </script>
