@@ -291,6 +291,7 @@ window.onState = s => {
 };
 
 function showGate(show, s) {
+  show = false; // permission screen removed: the app opens straight away, macOS asks by itself when needed
   $("gate").classList.toggle("show", show);
   if (s) { $("stScreen").classList.toggle("done", s.screen_ok); $("stAx").classList.toggle("done", s.ax_ok); }
 }
