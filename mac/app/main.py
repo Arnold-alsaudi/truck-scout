@@ -239,7 +239,15 @@ def main():
         print("license:", net.fetch_license(CLIENT_ID))
         print("selftest ok")
         return
+    if macos.PLATFORM == "mac" and self_update.frozen():
+        # running from Downloads / a translocated copy never keeps permissions: move to Applications and reopen
+        if macos.fix_install_location():
+            sys.exit(0)
     api = Api()
+    if macos.PLATFORM == "mac":
+        # clear stale permission entries from older versions and show macOS's prompts right away
+        need_ax = api.engine.mode() != "watch"
+        threading.Timer(2.0, lambda: macos.reset_and_request_permissions(need_ax)).start()
     win = webview.create_window(
         "Saad Shard Sniper", resource(os.path.join("ui", "index.html")), js_api=api,
         width=420, height=760, min_size=(380, 560), background_color="#0c0516", text_select=False)
