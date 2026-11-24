@@ -260,6 +260,27 @@ class Engine:
             if abs(yx - x) < 60 and abs(yy - y) < 60:
                 self._opened = (getattr(self, "_opened", []) + [(yx, yy)])[-20:]
 
+    def _snap_to_yellow(self, a):
+        """When the AI taps a truck, the bot itself taps the middle of the nearest yellow (S) truck that wasn't
+        opened yet - so a green/white/blue truck (or an avatar sitting over one) can never be opened."""
+        ys = getattr(self, "_yellow", [])
+        if not ys:
+            return ""
+        tgt = str(a.get("target", "")).lower()
+        if not any(w in tgt for w in ("truck", "avatar", "yellow", "player", "name tag", "card of")):
+            return ""  # buttons, Refresh, Share, X, tabs... are left as the AI chose
+        if any(w in tgt for w in ("refresh", "share", "close", " x", "tab", "back", "my truck", "others")):
+            return ""
+        opened = getattr(self, "_opened", [])
+        fresh = [p for p in ys if not any(abs(p[0] - ox) < 60 and abs(p[1] - oy) < 60 for ox, oy in opened)]
+        if not fresh:
+            return "none-left"
+        x, y = float(a.get("x", 500)), float(a.get("y", 500))
+        bx, by = min(fresh, key=lambda p: (p[0] - x) ** 2 + (p[1] - y) ** 2)
+        a["x"], a["y"] = bx, by
+        a["target"] = "yellow truck at %d,%d" % (bx, by)
+        return "snapped"
+
     def _yellow_hint(self):
         ys = getattr(self, "_yellow", [])
         if not ys:
@@ -405,6 +426,9 @@ class Engine:
                 return "blocked"
             time.sleep(0.15)
         if t == "tap":
+            snapped = self._snap_to_yellow(a)
+            if snapped == "none-left":
+                return "skip: all yellow trucks already opened - tap Refresh"
             x, y = macos.to_screen(win, a.get("x", 500), a.get("y", 500))
             macos.click(x, y)
             if not self._landed(x, y):
