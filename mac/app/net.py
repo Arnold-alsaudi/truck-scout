@@ -70,12 +70,12 @@ CLAUDE_MODEL = "claude-haiku-5-5"  # fast, sees images, cheapest current model
 _claude_clients = {}
 
 
-def ask_claude(key, model, prompt, jpeg):
-    """Sends the screenshot + instructions to Claude and returns its JSON answer as a dict."""
-    return retry(lambda: _ask_claude_once(key, model, prompt, jpeg))
+def ask_claude(key, model, prompt, jpeg, card=None):
+    """Sends the screenshot (+ an enlarged crop of the card area) + instructions to Claude; returns its JSON."""
+    return retry(lambda: _ask_claude_once(key, model, prompt, jpeg, card))
 
 
-def _ask_claude_once(key, model, prompt, jpeg):
+def _ask_claude_once(key, model, prompt, jpeg, card=None):
     import anthropic  # imported here so the app still starts if the package is missing
 
     client = _claude_clients.get(key)
@@ -92,6 +92,11 @@ def _ask_claude_once(key, model, prompt, jpeg):
                 "content": [
                     {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
                                                  "data": base64.standard_b64encode(jpeg).decode("utf-8")}},
+                ] + ([
+                    {"type": "text", "text": "Enlarged view of the lower part of the same screen (truck card and its reward icons):"},
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                 "data": base64.standard_b64encode(card).decode("utf-8")}},
+                ] if card else []) + [
                     {"type": "text", "text": prompt},
                 ],
             }],
