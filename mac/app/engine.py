@@ -29,7 +29,7 @@ DEFAULTS = {
     "server_to": 416,
     "excluded": "405",
     "min_fragments": 1,
-    "interval": 6,
+    "interval": 2,
     "window_id": 0,
     "found_count": 0,
     "seen": {},
@@ -44,6 +44,8 @@ class Config(dict):
                 self.update(json.load(f))
         except (OSError, ValueError):
             pass
+        if int(self.get("interval") or 2) >= 6:  # old slow default -> faster default
+            self["interval"] = 2
         if self.get("gemini_model") == "gemini-2.5-flash":
             self["gemini_model"] = "auto"
 
@@ -227,8 +229,8 @@ class Engine:
                 else:
                     self._set("running", screen)
 
-                wait = 30 if act.get("type") == "wait" else int(self.cfg["interval"])
-                end = time.time() + wait + random.uniform(0, 2.5)
+                wait = 8 if act.get("type") == "wait" else int(self.cfg["interval"])
+                end = time.time() + wait + random.uniform(0, 0.6)
                 while self.running and time.time() < end:
                     time.sleep(0.25)
             except Exception as e:  # keep going on any error
@@ -466,7 +468,7 @@ class Engine:
             "player's OWN truck).\n"
             "* Others' Trucks screen: a road with many trucks; trucks with an avatar picture and a name tag like \"[91TR] name\" "
             "are the ones you can open (tap the avatar). Top: \"Plunders Today: 0/4\", the checkbox \"Hide trucks of this State\", "
-            "a \"Refresh\" dice and \"Records\" on the right.\n"
+            "a \"Refresh\" dice and \"Records\" on the right. Truck COLOUR shows the rank: YELLOW/GOLDEN = S.\n"
             "* A truck CARD (bottom of the screen) shows: a big golden RANK letter (S is the best, then A, B, ...); the owner as "
             "\"Lv.25 Name\" with a power number; the server like \"#398\"; \"Arrival Time 04:23:10\"; a grid of reward "
             "icons with counts; buttons \"Plunder!\" (attack - NEVER) and \"Share\". On the card's left and right edges there "
@@ -509,10 +511,13 @@ class Engine:
                 "1. From the base/city view click the round truck icon on the left side.\n"
                 "2. Open the \"Others' Trucks\" tab; if a checkbox like \"Show trucks from other states only\" / "
                 "\"hide trucks from this state\" exists, make sure it is ON.\n"
-                "3. Tap a truck that has an avatar/name tag to open its card, read it, then press the \u203a arrow on the card's "
-                "right edge to see the next truck. Do NOT tap empty road. When all were seen, swipe the road to reveal more; "
-                "use the Refresh dice only if it is free.\n"
-                "4. Anything else in the way (tutorial, dialog, VICTORY/DEFEAT, offer popup): close it or press "
+                "3. ONLY YELLOW / GOLDEN trucks are rank S. Tap ONLY a yellow truck that has an avatar and a name tag like "
+                "\"[OWCH] Name\" to open its card. Ignore white, blue, green, purple and other colours completely - never open them. "
+                "Read the card, then go to the next YELLOW truck (the \u203a arrow on the card is fine if it shows another yellow "
+                "one; otherwise close the card and tap the next yellow truck). Never tap empty road.\n"
+                "4. When every yellow truck on screen has been checked (or there is none), tap the \"Refresh\" dice on the right "
+                "side to get a new list, then continue. If Refresh asks to pay diamonds/gems, close that popup instead.\n"
+                "5. Anything else in the way (tutorial, dialog, VICTORY/DEFEAT, offer popup): close it or press "
                 "Continue/Skip/X to get back to the base view. In mini-games or battles, press back/X to leave.\n"
                 + pending +
                 "\nSTRICT RULES - never click: Loot, Plunder, Plunder!, Attack, Deploy, Deploy Escorts, Retry, Buy, "
