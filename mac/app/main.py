@@ -9,11 +9,11 @@ import time
 import webview
 
 import engine
-import macos
+import osapi as macos
 import net
 
 VERSION = 1  # bumped by the release workflow tag mac-v<N>
-CLIENT_ID = "client1"      # this copy's entry in license.json (owner controls it with license.ps1)
+CLIENT_ID = "owner-win" if macos.PLATFORM == "win" else "client1"  # entry in license.json (license.ps1)
 LICENSE_EVERY = 10 * 60    # seconds between license checks
 OFFLINE_GRACE = 48 * 3600  # how long the app keeps working without reaching the license file
 
@@ -100,6 +100,7 @@ class Api:
         c = self.engine.cfg
         return {
             "version": VERSION,
+            "platform": macos.PLATFORM,
             "state": self.engine.snapshot(),
             "config": {k: c[k] for k in ("gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat",
                                          "server_from", "server_to", "excluded", "min_fragments", "interval",
@@ -162,14 +163,14 @@ class Api:
         if not url:
             return "حط لينك Discord الأول"
         try:
-            net.discord(url, "✅ Saad Shard Sniper (Mac) متوصل وشغال")
+            net.discord(url, "✅ Saad Shard Sniper (%s) متوصل وشغال" % ("Windows" if macos.PLATFORM == "win" else "Mac"))
             return "ok"
         except Exception as e:
             return net.short_error(str(e))
 
     def check_update(self):
         try:
-            r = net.newer_mac_release(VERSION)
+            r = net.newer_release(VERSION, macos.PLATFORM + "-v")
         except Exception:
             r = None
         return {"version": r[0], "url": r[1]} if r else None
