@@ -68,7 +68,12 @@ asked = []
 
 
 def fake_gemini(key, model, prompt, jpeg):
-    asked.append({"model": model, "prompt_has_servers": "#385" in prompt, "jpeg": len(jpeg)})
+    asked.append({"model": model, "prompt_has_servers": "#385" in prompt, "jpeg": len(jpeg),
+                  "asks_view": "click the \"View\" button" in prompt})
+    if len(asked) >= 2:
+        # second step: the bot pressed View, the world map shows the truck's coordinates
+        return {"screen": "world map at truck", "trucks": [], "map_coords": "#398 X:512 Y:733",
+                "action": {"type": "back"}}
     return {
         "screen": "truck card",
         "trucks": [
@@ -90,8 +95,10 @@ e = engine.Engine(lambda s: states.append(s))
 e.cfg.update({"gemini_key": "test", "discord_webhook": "https://example.invalid/webhook", "interval": 3,
               "seen": {}, "found_count": 0, "window_id": 0})
 e.start()
-time.sleep(6)
+time.sleep(12)
 e.stop()
+check("after finding S truck, prompt asks to press View", len(asked) >= 2 and asked[1]["asks_view"], asked[:2])
+check("alert carries map coordinates", bool(sent) and "X:512 Y:733" in sent[0]["text"], sent and sent[0]["text"])
 check("engine started", any(s["state"] == "running" for s in states), [s["status"] for s in states][:6])
 check("gemini called with screenshot", len(asked) >= 1 and asked[0]["jpeg"] > 5000, asked[:1])
 check("auto model used", asked and asked[0]["model"] == "gemini-test-flash", asked and asked[0]["model"])
