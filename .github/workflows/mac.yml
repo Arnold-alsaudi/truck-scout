@@ -54,7 +54,7 @@ jobs:
           pyinstaller --noconfirm --windowed --name "Saad Shard Sniper" \
             --icon icon.icns --osx-bundle-identifier com.saad.shardsniper \
             --add-data "mac/app/ui:ui" --paths mac/app \
-            --hidden-import webview.platforms.cocoa \
+            --hidden-import webview.platforms.cocoa --exclude-module winos \
             mac/app/main.py
           codesign --force --deep -s - "dist/Saad Shard Sniper.app"
 
