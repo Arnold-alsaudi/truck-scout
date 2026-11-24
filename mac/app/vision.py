@@ -56,6 +56,8 @@ def main_and_card(jpeg_big, main_width=900):
     img = Image.open(io.BytesIO(jpeg_big)).convert("RGB")
     main = img.resize((main_width, round(img.height * main_width / img.width)), Image.LANCZOS) if img.width > main_width else img
     card = img.crop((0, int(img.height * 0.55), img.width, int(img.height * 0.97)))
+    if card.width > 1000:  # still large enough to read the reward icons, but quicker for the AI
+        card = card.resize((1000, round(card.height * 1000 / card.width)), Image.LANCZOS)
     out = []
     for im in (main, card):
         b = io.BytesIO()
