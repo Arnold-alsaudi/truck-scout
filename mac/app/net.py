@@ -55,8 +55,17 @@ def short_error(body):
     return msg[:140] + ("…" if len(msg) > 140 else "")
 
 
-# ---------------------------------------------------------------- Claude (Anthropic)
+def parse_json(text, who="AI"):
+    """First JSON object in the model's reply; ignores code fences and anything written after it."""
+    s = re.sub(r"```(json)?", "", text or "")
+    start = s.find("{")
+    if start < 0:
+        raise RuntimeError("رد %s مش JSON" % who)
+    obj, _ = json.JSONDecoder().raw_decode(s[start:])
+    return obj
 
+
+# ---------------------------------------------------------------- Claude (Anthropic)
 CLAUDE_MODEL = "claude-haiku-5-5"  # fast, sees images, cheapest current model
 _claude_clients = {}
 
@@ -107,12 +116,8 @@ def _ask_claude_once(key, model, prompt, jpeg):
 
     if response.stop_reason == "refusal":
         raise RuntimeError("Claude رفض يرد على الصورة دي")
-    text = "".join(b.text for b in response.content if b.type == "text").strip()
-    text = re.sub(r"^```(json)?|```$", "", text).strip()
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end < start:
-        raise RuntimeError("رد Claude مش JSON")
-    return json.loads(text[start:end + 1])
+    text = "".join(b.text for b in response.content if b.type == "text")
+    return parse_json(text, "Claude")
 
 
 # ---------------------------------------------------------------- Gemini
@@ -136,9 +141,8 @@ def ask_gemini(key, model, prompt, jpeg):
             raise ModelGone(model)
         if code >= 400:
             raise RuntimeError("Gemini %d: %s" % (code, short_error(resp)))
-        text = json.loads(resp)["candidates"][0]["content"]["parts"][0]["text"].strip()
-        text = re.sub(r"^```(json)?|```$", "", text).strip()
-        return json.loads(text)
+        text = json.loads(resp)["candidates"][0]["content"]["parts"][0]["text"]
+        return parse_json(text, "Gemini")
     return retry(once)
 
 
