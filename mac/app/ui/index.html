@@ -121,6 +121,11 @@
   .step.done .n { background: var(--ok); color: #08140d; }
   .step .t { flex: 1; } .step .t b { display: block; } .step .t span { color: var(--muted); font-size: 11px; }
 
+  #lock { position: fixed; inset: 0; z-index: 35; display: none; flex-direction: column; justify-content: center; padding: 22px;
+    background: rgba(12,5,22,.97); }
+  #lock.show { display: flex; }
+  .lockicon { font-size: 34px; filter: drop-shadow(0 0 12px rgba(154,61,255,.8)); margin-bottom: 4px; }
+
   .toast { position: fixed; left: 14px; right: 14px; bottom: 40px; z-index: 40; padding: 9px 12px; text-align: center;
     background: #170c28; border-right: 3px solid var(--purple); box-shadow: 0 6px 20px rgba(0,0,0,.5);
     opacity: 0; transform: translateY(6px); pointer-events: none; transition: opacity .18s, transform .18s; }
@@ -199,6 +204,19 @@
   </div></div>
 </div>
 
+<div id="lock">
+  <div class="card"><div class="in" style="text-align:center">
+    <div class="lockicon">🔒</div>
+    <div class="en" style="color:var(--light);font-size:11px;font-weight:700" id="lockTag">LOCKED</div>
+    <div style="font-size:20px;font-weight:800;margin:6px 0 8px;text-shadow:0 0 10px rgba(154,61,255,.8)" id="lockTitle">التطبيق مقفول</div>
+    <div class="hint" id="lockMsg" style="font-size:13px"></div>
+    <div id="lockForm">
+      <div class="field" style="margin-top:16px"><input id="lockPass" type="password" placeholder="الباسورد" style="text-align:center;direction:ltr"></div>
+      <button class="btn wide" id="lockBtn" style="background:linear-gradient(135deg,#a64dff,var(--deep));color:#fff;box-shadow:none">فتح</button>
+    </div>
+  </div></div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -247,6 +265,16 @@ function autosave() {
   saveTimer = setTimeout(() => api.save_config(collect()), 400);
 }
 
+window.onLicense = l => {
+  const lock = $("lock"), on = l.status !== "active";
+  lock.classList.toggle("show", on);
+  if (!on) return;
+  $("lockMsg").textContent = l.message || "";
+  $("lockForm").style.display = l.status === "locked" ? "block" : "none";
+  $("lockTag").textContent = l.status === "locked" ? "LOCKED" : (l.status === "offline" ? "OFFLINE" : "DISABLED");
+  $("lockTitle").textContent = l.status === "locked" ? "التطبيق مقفول" : (l.status === "offline" ? "محتاج إنترنت" : "النسخة موقوفة");
+};
+
 async function init() {
   api = window.pywebview.api;
   const all = await api.get_all();
@@ -254,6 +282,13 @@ async function init() {
   FIELDS.forEach(k => { if (k !== "window_id") $(k).value = all.config[k] ?? ""; });
   await loadWindows(all.config.window_id);
   onState(all.state);
+  onLicense(await api.license());
+  $("lockBtn").onclick = async () => {
+    const okp = await api.unlock($("lockPass").value);
+    okp ? toast("اتفتح", "ok") : toast("الباسورد غلط", "err");
+    $("lockPass").value = "";
+  };
+  $("lockPass").addEventListener("keydown", e => { if (e.key === "Enter") $("lockBtn").click(); });
 
   FIELDS.forEach(k => $(k).addEventListener(k === "window_id" ? "change" : "input", autosave));
   $("go").onclick = async () => {
