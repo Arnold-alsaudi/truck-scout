@@ -311,6 +311,14 @@ def ask_accessibility():
     pass
 
 
+def fix_install_location():
+    return False  # Windows needs no move / permission fixing
+
+
+def reset_and_request_permissions(need_accessibility=True):
+    pass
+
+
 def open_settings(pane):
     pass
 
