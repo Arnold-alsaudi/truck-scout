@@ -102,14 +102,14 @@ class Api:
             "version": VERSION,
             "platform": macos.PLATFORM,
             "state": self.engine.snapshot(),
-            "config": {k: c[k] for k in ("ai_provider", "claude_key", "gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat",
+            "config": {k: c[k] for k in ("mode", "ai_provider", "claude_key", "gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat",
                                          "server_from", "server_to", "excluded", "min_fragments", "interval",
                                          "window_id")},
         }
 
     def save_config(self, values):
         c = self.engine.cfg
-        for k in ("ai_provider", "claude_key", "gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat", "excluded"):
+        for k in ("mode", "ai_provider", "claude_key", "gemini_key", "gemini_model", "discord_webhook", "tg_token", "tg_chat", "excluded"):
             if k in values:
                 c[k] = str(values[k]).strip()
         for k in ("server_from", "server_to", "min_fragments", "interval", "window_id"):
