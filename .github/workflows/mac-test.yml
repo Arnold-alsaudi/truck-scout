@@ -1,0 +1,50 @@
+name: Test Mac app
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published Mac version to launch (mac-v<N>)"
+        required: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install -r mac/requirements.txt
+
+      - name: Open a fake game window (Preview showing a Last Z truck screenshot)
+        run: |
+          open -a Preview "mac/test/Last Z.png"
+          sleep 6
+
+      - name: Engine end-to-end test
+        run: python mac/test/ci_test.py
+
+      - name: Launch the published app and screenshot it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p mac/test/out
+          gh release download "mac-v${{ inputs.version }}" -p "SaadShardSniper-mac-apple-silicon.zip" -D /tmp/app
+          cd /tmp/app && ditto -x -k SaadShardSniper-mac-apple-silicon.zip . && ls
+          xattr -cr "/tmp/app/Saad Shard Sniper.app"
+          open "/tmp/app/Saad Shard Sniper.app"
+          sleep 15
+          screencapture -x "$GITHUB_WORKSPACE/mac/test/out/screen_app.png"
+          pgrep -fl "Saad Shard Sniper" || (echo "APP NOT RUNNING" && exit 1)
+          osascript -e 'tell application "System Events" to get name of every window of (every process whose name contains "Saad")' || true
+          pkill -f "Saad Shard Sniper" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mac-test-output
+          path: mac/test/out
