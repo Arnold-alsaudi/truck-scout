@@ -140,6 +140,11 @@ class Engine:
         no_alerts = not c["discord_webhook"] and not (c["tg_token"] and c["tg_chat"])
         watch = self.mode() == "watch"
         perm_note = ""
+        if not macos.has_screen_recording():
+            try:
+                macos.ask_screen_recording()  # macOS shows its own permission prompt / settings page
+            except Exception:
+                pass
         if not macos.has_screen_recording() or (not watch and not macos.has_accessibility()):
             perm_note = " · لو الماك طلب إذن تسجيل الشاشة أو إمكانية الوصول، وافق"
         if not self.resolve_window():
@@ -213,7 +218,9 @@ class Engine:
                 done = self._act(act, win)
                 self._acted = done.split(" ")[0] in ("tap", "swipe", "back")
                 self._history.append(screen + " -> " + done)
-                if done == "blocked":
+                if done == "noinput":
+                    self._set("error", "⚠ الماك مانع البوت يضغط: فعّل Saad Shard Sniper في إعدادات النظام ← الخصوصية والأمن ← إمكانية الوصول، وبعدين اقفل التطبيق وافتحه")
+                elif done == "blocked":
                     self._set("error", "نافذة اللعبة متغطية بـ '%s'… خلي اللعبة ظاهرة ومحدش فوقها" % self._covered_by)
                 elif self._stuck >= 3:
                     self._set("error", "⚠ الضغطات مش بتأثر في اللعبة (الشاشة ما اتغيرتش 3 مرات). اتأكد إن اللعبة في المقدمة وإن إذن إمكانية الوصول مفعّل")
@@ -325,6 +332,23 @@ class Engine:
         diff = ImageStat.Stat(ImageChops.difference(prev, thumb)).mean[0]
         self._stuck = self._stuck + 1 if diff < 1.5 else 0
 
+    def _landed(self, x, y):
+        """Did our mouse move really happen? If macOS blocks it (no Accessibility permission) the cursor stays
+        put: then ask for the permission instead of thinking the user moved the mouse."""
+        time.sleep(0.05)
+        mx, my = macos.mouse_position()
+        self._last_mouse = (mx, my)  # compare future movement with where the cursor really is
+        if abs(mx - x) <= 12 and abs(my - y) <= 12:
+            self._noinput = 0
+            return True
+        self._noinput = getattr(self, "_noinput", 0) + 1
+        if self._noinput == 1:
+            try:
+                macos.ask_accessibility()
+            except Exception:
+                pass
+        return False
+
     def _act(self, a, win):
         t = a.get("type", "wait")
         if t in ("tap", "swipe", "back"):
@@ -335,13 +359,15 @@ class Engine:
         if t == "tap":
             x, y = macos.to_screen(win, a.get("x", 500), a.get("y", 500))
             macos.click(x, y)
-            self._last_mouse = (x, y)
+            if not self._landed(x, y):
+                return "noinput"
             return "tap " + str(a.get("target", ""))
         if t == "swipe":
             x1, y1 = macos.to_screen(win, a.get("x", 500), a.get("y", 500))
             x2, y2 = macos.to_screen(win, a.get("x2", 500), a.get("y2", 500))
             macos.drag(x1, y1, x2, y2)
-            self._last_mouse = (x2, y2)
+            if not self._landed(x2, y2):
+                return "noinput"
             return "swipe " + str(a.get("target", ""))
         if t == "back":
             macos.press_escape()
