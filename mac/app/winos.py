@@ -99,8 +99,13 @@ def guess_game_window():
 
 def window_info(win_id):
     hwnd = int(win_id)
-    if not user32.IsWindow(hwnd) or user32.IsIconic(hwnd):
+    if not user32.IsWindow(hwnd):
         return None
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE: the game was minimized - bring it back so the bot can see it
+        time.sleep(0.6)
+        if user32.IsIconic(hwnd):
+            return None
     x, y, w, h = _client_rect(hwnd)
     if w <= 0 or h <= 0:
         return None
@@ -114,11 +119,50 @@ def activate(pid_or_hwnd, hwnd=None):
     if not h:
         return
     try:
-        user32.keybd_event(0x12, 0, 0, 0)        # tiny Alt tap lets SetForegroundWindow work
+        if user32.IsIconic(h):
+            user32.ShowWindow(h, 9)  # SW_RESTORE
+        fg = user32.GetForegroundWindow()
+        if fg == h:
+            return
+        # Windows only lets the foreground thread hand over focus: join its input queue for a moment
+        me = kernel32.GetCurrentThreadId()
+        fg_thread = user32.GetWindowThreadProcessId(fg, None)
+        target_thread = user32.GetWindowThreadProcessId(h, None)
+        user32.AttachThreadInput(me, fg_thread, True)
+        user32.AttachThreadInput(me, target_thread, True)
+        user32.keybd_event(0x12, 0, 0, 0)        # tiny Alt tap also unlocks SetForegroundWindow
         user32.keybd_event(0x12, 0, 2, 0)
+        user32.BringWindowToTop(h)
         user32.SetForegroundWindow(h)
+        user32.SetFocus(h)
+        user32.AttachThreadInput(me, target_thread, False)
+        user32.AttachThreadInput(me, fg_thread, False)
     except Exception:
         pass
+
+
+def _root_at(x, y):
+    hit = user32.WindowFromPoint(wt.POINT(int(round(x)), int(round(y))))
+    return user32.GetAncestor(hit, 2) if hit else 0  # GA_ROOT
+
+
+def ensure_front(win):
+    """Makes sure clicks at the window's centre really land on the game. Returns True if they will."""
+    h = int(win["id"])
+    _last_hwnd["h"] = h
+    cx, cy = win["x"] + win["w"] / 2, win["y"] + win["h"] / 2
+    for _ in range(3):
+        if _root_at(cx, cy) == h:
+            return True
+        activate(None, h)
+        time.sleep(0.25)
+    return _root_at(cx, cy) == h
+
+
+def covering_title(win):
+    """Title of the window that is on top of the game's centre (for the status message)."""
+    root = _root_at(win["x"] + win["w"] / 2, win["y"] + win["h"] / 2)
+    return _title(root) if root else ""
 
 
 _last_hwnd = {}
