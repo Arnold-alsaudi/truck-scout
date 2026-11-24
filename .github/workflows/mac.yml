@@ -1,0 +1,78 @@
+name: Build Mac app
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Mac version number (release tag mac-v<N>)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: apple-silicon
+          - runner: macos-15-intel
+            arch: intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r mac/requirements.txt pyinstaller pillow
+
+      - name: Set version
+        run: sed -i '' "s/^VERSION = .*/VERSION = ${{ inputs.version }}/" mac/app/main.py
+
+      - name: Icon
+        run: |
+          python mac/make_icon.py icon.png
+          mkdir icon.iconset
+          for s in 16 32 64 128 256 512; do
+            sips -z $s $s icon.png --out icon.iconset/icon_${s}x${s}.png >/dev/null
+            d=$((s*2)); sips -z $d $d icon.png --out icon.iconset/icon_${s}x${s}@2x.png >/dev/null
+          done
+          iconutil -c icns icon.iconset -o icon.icns
+
+      - name: Source self-test
+        run: cd mac/app && python main.py --selftest
+
+      - name: Build .app
+        run: |
+          pyinstaller --noconfirm --windowed --name "Saad Shard Sniper" \
+            --icon icon.icns --osx-bundle-identifier com.saad.shardsniper \
+            --add-data "mac/app/ui:ui" --paths mac/app \
+            --hidden-import webview.platforms.cocoa \
+            mac/app/main.py
+          codesign --force --deep -s - "dist/Saad Shard Sniper.app"
+
+      - name: App self-test
+        run: '"dist/Saad Shard Sniper.app/Contents/MacOS/Saad Shard Sniper" --selftest'
+
+      - name: Package
+        run: |
+          cp mac/README-client.txt "dist/اقرأني - Read me.txt"
+          cd dist
+          ditto -c -k --keepParent "Saad Shard Sniper.app" "../SaadShardSniper-mac-${{ matrix.arch }}.zip"
+          cd ..
+          zip -j "SaadShardSniper-mac-${{ matrix.arch }}.zip" "dist/اقرأني - Read me.txt"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="mac-v${{ inputs.version }}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "Saad Shard Sniper Mac v${{ inputs.version }}" --notes "Mac build" --latest=false || true
+          gh release upload "$TAG" "SaadShardSniper-mac-${{ matrix.arch }}.zip" --clobber
