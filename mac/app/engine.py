@@ -139,8 +139,9 @@ class Engine:
             return self._set("error", "حط مفتاح Claude (أو Gemini) في الإعدادات")
         no_alerts = not c["discord_webhook"] and not (c["tg_token"] and c["tg_chat"])
         watch = self.mode() == "watch"
+        perm_note = ""
         if not macos.has_screen_recording() or (not watch and not macos.has_accessibility()):
-            return self._set("error", "ناقص إذن تسجيل الشاشة أو إمكانية الوصول")
+            perm_note = " · لو الماك طلب إذن تسجيل الشاشة أو إمكانية الوصول، وافق"
         if not self.resolve_window():
             return self._set("error", "مش لاقي نافذة اللعبة. افتح Last Z واختارها من القائمة")
         self.running = True
@@ -150,7 +151,7 @@ class Engine:
         self._prev_thumb, self._acted, self._stuck = None, False, 0
         self._watch_prev, self._watch_last_ask = None, 0.0
         self._set("running", ("بيراقب: " if watch else "شغال على: ") + (self.window_label or "نافذة اللعبة")
-                  + (" · ⚠ التنبيهات مقفولة: حط لينك Discord" if no_alerts else ""))
+                  + (" · ⚠ التنبيهات مقفولة: حط لينك Discord" if no_alerts else "") + perm_note)
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
