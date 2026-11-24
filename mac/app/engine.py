@@ -79,6 +79,7 @@ class Engine:
         self._thread = None
         self._history = deque(maxlen=8)
         self._last_mouse = None
+        self._pending = None                # S truck waiting for its map coordinates
 
     # ------------------------------------------------------------ state
 
@@ -136,6 +137,7 @@ class Engine:
         self.running = True
         self._history.clear()
         self._last_mouse = None
+        self._pending = None
         self._set("running", "شغال على: " + (self.window_label or "نافذة اللعبة"))
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
@@ -192,6 +194,7 @@ class Engine:
                 errors = 0
 
                 self._handle_trucks(ans.get("trucks") or [], win)
+                self._after_step(ans)
                 screen = str(ans.get("screen", "?"))
                 act = ans.get("action") or {}
                 done = self._act(act, win)
@@ -237,7 +240,12 @@ class Engine:
             return "back"
         return "wait"
 
+    # ------------------------------------------------------------ trucks & coordinates
+
+    PENDING_MAX_STEPS = 8   # how many steps to spend getting a truck's coordinates before sending without them
+
     def _handle_trucks(self, trucks, win):
+        """Queues a wanted S truck; it is sent once its map coordinates are known (or after a few tries)."""
         c = self.cfg
         for t in trucks:
             try:
@@ -249,40 +257,81 @@ class Engine:
             player = str(t.get("player", "")).strip()
             if rank != "S" or frags < int(c["min_fragments"]) or not server or not c.server_allowed(server):
                 continue
-            if c.already_sent("%d:%s" % (server, player.lower())):
+            key = "%d:%s" % (server, player.lower())
+            if self._pending and self._pending["key"] == key:
                 continue
-            lines = ["🎯 **SHARD SNIPER** — شاحنة S!", "🌐 السيرفر: #%d" % server]
-            if player:
-                lines.append("👤 اللاعب: " + player)
-            if t.get("coords"):
-                lines.append("📍 الإحداثيات: " + str(t["coords"]))
-            if t.get("arrival"):
-                lines.append("⏱ وقت الوصول: " + str(t["arrival"]))
-            lines.append("🧩 شظايا S: %d" % frags)
-            if t.get("rewards"):
-                lines.append("🎁 الجوايز: " + str(t["rewards"]))
-            text = "\n".join(lines)
-            photo = macos.capture_full_jpeg(win["id"])
-            sent = False
-            if c["discord_webhook"]:
-                try:
-                    net.discord(c["discord_webhook"], text, photo)
-                    sent = True
-                except Exception as e:
-                    self._set(status="فشل الإرسال لـ Discord: " + net.short_error(str(e)))
-            if c["tg_token"] and c["tg_chat"]:
-                try:
-                    net.telegram(c["tg_token"], c["tg_chat"], text, photo)
-                    sent = True
-                except Exception:
-                    pass
-            if sent:
-                c["found_count"] = int(c["found_count"]) + 1
-                c.save()
+            if key in (c.get("seen") or {}):
+                continue
+            truck = {"key": key, "server": server, "player": player, "frags": frags,
+                     "arrival": str(t.get("arrival") or ""), "rewards": str(t.get("rewards") or ""),
+                     "photo": macos.capture_full_jpeg(win["id"]), "steps": 0}
+            coords = _clean_coords(t.get("coords"))
+            if coords:
+                self._send(truck, coords)
+            elif self._pending is None:
+                self._pending = truck
+                self._set(status="لقيت شاحنة S على #%d… بجيب الإحداثيات" % server)
+
+    def _after_step(self, ans):
+        """While a truck is pending: take coordinates from the map, or give up after a few steps."""
+        p = self._pending
+        if not p:
+            return
+        p["steps"] += 1
+        coords = _clean_coords(ans.get("map_coords"))
+        if coords:
+            self._send(p, coords)
+        elif p["steps"] >= self.PENDING_MAX_STEPS:
+            self._send(p, "")
+
+    def _send(self, truck, coords):
+        c = self.cfg
+        if self._pending is truck:
+            self._pending = None
+        if c.already_sent(truck["key"]):
+            return
+        lines = ["🎯 **SHARD SNIPER** — شاحنة S!", "🌐 السيرفر: #%d" % truck["server"]]
+        if truck["player"]:
+            lines.append("👤 اللاعب: " + truck["player"])
+        lines.append("📍 الإحداثيات: " + (coords if coords else "مش ظاهرة"))
+        if truck["arrival"]:
+            lines.append("⏱ وقت الوصول: " + truck["arrival"])
+        lines.append("🧩 شظايا S: %d" % truck["frags"])
+        if truck["rewards"]:
+            lines.append("🎁 الجوايز: " + truck["rewards"])
+        text = "\n".join(lines)
+        sent = False
+        if c["discord_webhook"]:
+            try:
+                net.discord(c["discord_webhook"], text, truck["photo"])
+                sent = True
+            except Exception as e:
+                self._set(status="فشل الإرسال لـ Discord: " + net.short_error(str(e)))
+        if c["tg_token"] and c["tg_chat"]:
+            try:
+                net.telegram(c["tg_token"], c["tg_chat"], text, truck["photo"])
+                sent = True
+            except Exception:
+                pass
+        if sent:
+            c["found_count"] = int(c["found_count"]) + 1
+            c.save()
 
     def _prompt(self):
         c = self.cfg
         hist = "".join("- %s\n" % h for h in self._history) or "- none\n"
+        p = self._pending
+        pending = ""
+        if p:
+            pending = (
+                "\n>>> CURRENT TASK (more important than scouting): you just found a wanted S truck (server #%d, player "
+                "\"%s\"). Get its MAP COORDINATES:\n"
+                "  a) If its truck card is open, click the \"View\" button on the card (NOT Loot, NOT Share).\n"
+                "  b) The game moves to the world map at that truck. Read the coordinates shown on the map / location bar "
+                "(e.g. \"X:512 Y:733\" or \"#398 X:512 Y:733\") and put them in \"map_coords\".\n"
+                "  c) After that, go back to the Others' Trucks list and continue scouting.\n"
+                "  If the card is closed, reopen that truck from the list first.\n" % (p["server"], p["player"])
+            )
         return (
             "You control the mobile game \"Last Z: Survival Shooter\" shown in a desktop window on a Mac "
             "(BlueStacks, the iPhone/iPad app, or another emulator; UI may be Arabic or English). You see one screenshot "
@@ -295,22 +344,39 @@ class Engine:
             "2. In the trade screen, open the tab \"Others' Trucks\" (bottom). If there is a checkbox like \"Show trucks "
             "from other states only\" / \"hide trucks from this state\", make sure it is ON.\n"
             "3. Trucks show a server number like #398. Click a truck from a wanted server to open its card and read rank, "
-            "rewards, player name, arrival time and any coordinates (X:Y). Then close the card (X button, or back) and "
-            "continue with the next truck. Swipe the list or the road to reveal more trucks; use a refresh of the others' "
-            "truck list only if it is free.\n"
-            "4. If a popup/ad/reward dialog is in the way, close it with its X button.\n\n"
+            "rewards, player name and arrival time. Then close the card (X button, or back) and continue with the next "
+            "truck. Swipe the list or the road to reveal more trucks; use a refresh of the others' truck list only if it "
+            "is free.\n"
+            "4. If a popup/ad/reward dialog is in the way, close it with its X button.\n"
+            "%s\n"
             "STRICT RULES - never click: Loot, Plunder, Attack, Deploy, Deploy Escorts, Share, Buy, Purchase, Recharge, "
-            "anything costing diamonds/gold/gems, the refresh button of the player's OWN truck, or chat. You only look. "
-            "If unsure, choose \"back\" or \"wait\". \"back\" presses Escape (works in emulators); in the iPhone app prefer "
-            "clicking the on-screen X / back arrow.\n\n"
+            "anything costing diamonds/gold/gems, the refresh button of the player's OWN truck, or chat. \"View\" is "
+            "allowed (it only shows the truck on the map). You only look. If unsure, choose \"back\" or \"wait\". "
+            "\"back\" presses Escape (works in emulators); in the iPhone app prefer clicking the on-screen X / back arrow.\n\n"
             "Recent steps (avoid repeating loops):\n%s\n"
             "Answer ONLY JSON:\n"
             "{\"screen\": \"short description of the current screen\",\n"
             " \"trucks\": [ {\"server\": 398, \"player\": \"name or empty\", \"rank\": \"S|A|B|...\", \"s_fragments\": 3, "
-            "\"arrival\": \"04:23:10\", \"coords\": \"X:123 Y:456 or empty\", \"rewards\": \"short list\"} ],\n"
+            "\"arrival\": \"04:23:10\", \"coords\": \"X:123 Y:456 if shown on the card, else empty\", "
+            "\"rewards\": \"short list\"} ],\n"
+            " \"map_coords\": \"X:123 Y:456 if the world map now shows the pending truck's coordinates, else empty\",\n"
             " \"action\": {\"type\": \"tap|swipe|back|wait\", \"x\": 0-1000, \"y\": 0-1000, \"x2\": 0-1000, \"y2\": 0-1000, "
             "\"target\": \"what you click\"}}\n"
             "x,y are normalized 0-1000 of the screenshot width/height. List in \"trucks\" ONLY trucks whose rank and "
             "rewards are clearly visible right now; otherwise []."
-            % (c["server_from"], c["server_to"], c["excluded"], hist)
+            % (c["server_from"], c["server_to"], c["excluded"], pending, hist)
         )
+
+
+def _clean_coords(v):
+    """Keeps only something that looks like real coordinates (two numbers), formatted 'X:123 Y:456'."""
+    if not v:
+        return ""
+    nums = re.findall(r"\d+", str(v))
+    s = str(v)
+    m = re.search(r"[Xx]\s*[:：]?\s*(\d+)\D+[Yy]\s*[:：]?\s*(\d+)", s)
+    if m:
+        return "X:%s Y:%s" % (m.group(1), m.group(2))
+    if len(nums) >= 2:
+        return "X:%s Y:%s" % (nums[-2], nums[-1])
+    return ""
