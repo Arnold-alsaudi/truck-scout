@@ -35,8 +35,13 @@
     background: linear-gradient(100deg, rgba(255,255,255,0), rgba(201,139,255,.16), rgba(255,255,255,0));
     transform: skewX(-20deg); animation: sweep 6s ease-in-out infinite; }
   @keyframes sweep { 0%, 55% { left: -40%; } 100% { left: 120%; } }
-  .brand { color: var(--light); font-size: 11px; letter-spacing: .6em; font-weight: 700; }
-  .title { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: .1em; text-shadow: 0 0 16px rgba(154,61,255,.85); }
+  .banner { flex: none; width: 100%; aspect-ratio: 1568 / 576; position: relative;
+    background: url(banner.jpg) center / cover no-repeat; }
+  .banner:after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 35%;
+    background: linear-gradient(rgba(16,8,32,0), #100820); }
+  header { padding: 8px 12px 10px; margin-top: -1px; }
+  .brand { color: var(--light); font-size: 12px; letter-spacing: .4em; font-weight: 700; margin-left: 6px; }
+  .title { font-size: 18px; font-weight: 800; color: #fff; letter-spacing: .1em; text-shadow: 0 0 14px rgba(154,61,255,.85); }
   .tag { margin-top: 6px; display: flex; align-items: center; justify-content: center; font-size: 9px; letter-spacing: .35em; color: #c69bda; }
   .tag i { width: 40px; height: 1px; background: linear-gradient(90deg, rgba(154,61,255,0), var(--purple)); margin: 0 10px; }
   .tag i:first-child { transform: scaleX(-1); }
@@ -124,9 +129,9 @@
 </style>
 </head>
 <body>
+<div class="banner"></div>
 <header>
-  <div class="brand en">Saad</div>
-  <div class="title en">Shard Sniper</div>
+  <div class="title en"><span class="brand">Saad</span> Shard Sniper</div>
   <div class="tag en"><i></i>Last Z · S-Rank Hunter<i></i></div>
 </header>
 
