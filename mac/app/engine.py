@@ -9,6 +9,7 @@ from collections import deque
 
 import osapi as macos
 import net
+import vision
 
 CONFIG_DIR = (os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Saad Shard Sniper")
               if macos.PLATFORM == "win" else os.path.expanduser("~/Library/Application Support/Saad Shard Sniper"))
@@ -210,7 +211,12 @@ class Engine:
                     continue
 
                 self._check_moving(shot)
+                try:
+                    self._yellow = vision.yellow_trucks(shot)
+                except Exception:
+                    self._yellow = []
                 ans = self._ask(shot)
+                self._log(ans)
                 errors = 0
 
                 self._handle_trucks(ans.get("trucks") or [], win)
@@ -218,6 +224,7 @@ class Engine:
                 screen = str(ans.get("screen", "?"))
                 act = ans.get("action") or {}
                 done = self._act(act, win)
+                self._note_opened(act)
                 self._acted = done.split(" ")[0] in ("tap", "swipe", "back")
                 self._history.append(screen + " -> " + done)
                 if done == "noinput":
@@ -238,8 +245,47 @@ class Engine:
                 self._set("error", "خطأ: " + net.short_error(str(e)))
                 time.sleep(min(120, 5 * errors))
 
-    # ------------------------------------------------------------ watch mode
+    # ------------------------------------------------------------ yellow trucks & diagnostics
 
+    def _note_opened(self, act):
+        """Remember which yellow trucks were tapped, so the bot moves on to the next one; forget after Refresh."""
+        target = str(act.get("target", "")).lower()
+        if "refresh" in target:
+            self._opened = []
+            return
+        if act.get("type") != "tap":
+            return
+        x, y = float(act.get("x", -1)), float(act.get("y", -1))
+        for yx, yy in getattr(self, "_yellow", []):
+            if abs(yx - x) < 60 and abs(yy - y) < 60:
+                self._opened = (getattr(self, "_opened", []) + [(yx, yy)])[-20:]
+
+    def _yellow_hint(self):
+        ys = getattr(self, "_yellow", [])
+        if not ys:
+            return "Yellow trucks detected by colour on this screenshot: none.\n"
+        opened = getattr(self, "_opened", [])
+        rows = []
+        for i, (x, y) in enumerate(ys, 1):
+            done = any(abs(x - ox) < 60 and abs(y - oy) < 60 for ox, oy in opened)
+            rows.append("  %d) x=%d y=%d%s" % (i, x, y, "  (already opened)" if done else ""))
+        return ("YELLOW (rank S) trucks found by exact colour detection - to open one, tap EXACTLY one of these points "
+                "(x,y in 0-1000), never any other truck:\n" + "\n".join(rows) + "\n"
+                "Open the ones not yet opened; when all are opened, tap Refresh.\n")
+
+    def _log(self, ans, note=""):
+        """Appends each step to log.txt in the settings folder (for diagnosing problems)."""
+        try:
+            path = os.path.join(CONFIG_DIR, "log.txt")
+            if os.path.exists(path) and os.path.getsize(path) > 1_000_000:
+                os.replace(path, path + ".old")
+            with open(path, "a", encoding="utf-8") as f:
+                f.write("%s %s %s\n" % (time.strftime("%H:%M:%S"), note,
+                                        json.dumps(ans, ensure_ascii=False) if ans is not None else ""))
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------ watch mode
     def mode(self):
         """auto = the bot plays to find trucks; watch = the player plays, the bot only watches and alerts."""
         return "watch" if str(self.cfg.get("mode") or "auto").lower() == "watch" else "auto"
@@ -391,7 +437,18 @@ class Engine:
             except (TypeError, ValueError):
                 continue
             player = str(t.get("player", "")).strip()
-            if rank != "S" or frags < int(c["min_fragments"]) or not server or not c.server_allowed(server):
+            if rank != "S":
+                continue
+            why = ""
+            if frags < int(c["min_fragments"]):
+                why = "مفيهاش شظايا S كفاية (%d)" % frags
+            elif not server:
+                why = "رقم السيرفر مش ظاهر"
+            elif not c.server_allowed(server):
+                why = "سيرفر #%d برا النطاق %s-%s" % (server, c["server_from"], c["server_to"])
+            if why:
+                self._set(status="شاحنة S (%s) ما اتبعتتش: %s" % (player or "?", why))
+                self._log(t, "SKIPPED: " + why)
                 continue
             key = "%d:%s" % (server, player.lower())
             if self._pending and self._pending["key"] == key:
@@ -525,6 +582,7 @@ class Engine:
                 "\"Share\" is allowed ONLY to open the popup and read coordinates (then close it with X). If unsure choose \"back\" or \"wait\". \"back\" presses Escape (works in "
                 "emulators); in the iPhone app prefer the on-screen X / back arrow. Do not repeat an action that did "
                 "not change the screen; try something else.\n\n"
+                + self._yellow_hint() +
                 "Recent steps:\n" + hist + "\n"
             )
         return knowledge + task + (
