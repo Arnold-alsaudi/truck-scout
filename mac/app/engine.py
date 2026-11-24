@@ -15,6 +15,7 @@ CONFIG_DIR = (os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 
 DEFAULTS = {
+    "mode": "auto",                 # auto = bot plays | watch = you play, bot only alerts
     "ai_provider": "claude",          # claude | gemini
     "claude_key": "",
     "claude_model": "claude-haiku-5-5",
@@ -84,6 +85,10 @@ class Engine:
         self._history = deque(maxlen=8)
         self._last_mouse = None
         self._pending = None                # S truck waiting for its map coordinates
+        self._prev_thumb = None             # last screenshot (small) to see if clicks change the screen
+        self._acted = False
+        self._stuck = 0
+        self._covered_by = ""
 
     # ------------------------------------------------------------ state
 
@@ -132,9 +137,9 @@ class Engine:
         c = self.cfg
         if not self._key():
             return self._set("error", "حط مفتاح Claude (أو Gemini) في الإعدادات")
-        if not c["discord_webhook"] and not (c["tg_token"] and c["tg_chat"]):
-            return self._set("error", "حط لينك Discord في الإعدادات")
-        if not macos.has_screen_recording() or not macos.has_accessibility():
+        no_alerts = not c["discord_webhook"] and not (c["tg_token"] and c["tg_chat"])
+        watch = self.mode() == "watch"
+        if not macos.has_screen_recording() or (not watch and not macos.has_accessibility()):
             return self._set("error", "ناقص إذن تسجيل الشاشة أو إمكانية الوصول")
         if not self.resolve_window():
             return self._set("error", "مش لاقي نافذة اللعبة. افتح Last Z واختارها من القائمة")
@@ -142,7 +147,10 @@ class Engine:
         self._history.clear()
         self._last_mouse = None
         self._pending = None
-        self._set("running", "شغال على: " + (self.window_label or "نافذة اللعبة"))
+        self._prev_thumb, self._acted, self._stuck = None, False, 0
+        self._watch_prev, self._watch_last_ask = None, 0.0
+        self._set("running", ("بيراقب: " if watch else "شغال على: ") + (self.window_label or "نافذة اللعبة")
+                  + (" · ⚠ التنبيهات مقفولة: حط لينك Discord" if no_alerts else ""))
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
@@ -164,7 +172,7 @@ class Engine:
         errors = 0
         while self.running:
             try:
-                if self._user_moved_mouse():
+                if self.mode() != "watch" and self._user_moved_mouse():
                     self._set("paused", "اتوقف مؤقتاً لأنك حركت الماوس… هيكمل بعد 20 ثانية")
                     pos = macos.mouse_position()
                     idle_since = time.time()
@@ -188,6 +196,12 @@ class Engine:
                     time.sleep(5)
                     continue
 
+                if self.mode() == "watch":
+                    self._watch_step(win, shot)
+                    errors = 0
+                    continue
+
+                self._check_moving(shot)
                 ans = self._ask(shot)
                 errors = 0
 
@@ -196,8 +210,14 @@ class Engine:
                 screen = str(ans.get("screen", "?"))
                 act = ans.get("action") or {}
                 done = self._act(act, win)
+                self._acted = done.split(" ")[0] in ("tap", "swipe", "back")
                 self._history.append(screen + " -> " + done)
-                self._set("running", screen)
+                if done == "blocked":
+                    self._set("error", "نافذة اللعبة متغطية بـ '%s'… خلي اللعبة ظاهرة ومحدش فوقها" % self._covered_by)
+                elif self._stuck >= 3:
+                    self._set("error", "⚠ الضغطات مش بتأثر في اللعبة (الشاشة ما اتغيرتش 3 مرات). اتأكد إن اللعبة في المقدمة وإن إذن إمكانية الوصول مفعّل")
+                else:
+                    self._set("running", screen)
 
                 wait = 30 if act.get("type") == "wait" else int(self.cfg["interval"])
                 end = time.time() + wait + random.uniform(0, 2.5)
@@ -208,8 +228,48 @@ class Engine:
                 self._set("error", "خطأ: " + net.short_error(str(e)))
                 time.sleep(min(120, 5 * errors))
 
-    # ------------------------------------------------------------ AI provider
+    # ------------------------------------------------------------ watch mode
 
+    def mode(self):
+        """auto = the bot plays to find trucks; watch = the player plays, the bot only watches and alerts."""
+        return "watch" if str(self.cfg.get("mode") or "auto").lower() == "watch" else "auto"
+
+    @staticmethod
+    def _thumb(shot):
+        try:
+            from PIL import Image
+            import io
+            return Image.open(io.BytesIO(shot)).convert("L").resize((48, 80))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _diff(a, b):
+        from PIL import ImageChops, ImageStat
+        return ImageStat.Stat(ImageChops.difference(a, b)).mean[0]
+
+    def _watch_step(self, win, shot):
+        """Watch mode: never clicks. Asks the AI only when the screen really changed, at most once per interval,
+        so standing on one screen costs nothing."""
+        thumb = self._thumb(shot)
+        changed = self._watch_prev is None or thumb is None or self._diff(self._watch_prev, thumb) >= 4.0
+        due = time.time() - self._watch_last_ask >= max(3, int(self.cfg["interval"]))
+        if changed and due:
+            self._watch_prev = thumb
+            self._watch_last_ask = time.time()
+            ans = self._ask(shot)
+            trucks = ans.get("trucks") or []
+            mc = _clean_coords(ans.get("map_coords"))
+            for t in trucks:
+                if mc and not _clean_coords(t.get("coords")):
+                    t["coords"] = mc
+            self._handle_trucks(trucks, win, watch=True)
+            self._set("running", "بيراقب: " + str(ans.get("screen", "?")))
+        end = time.time() + 2.5
+        while self.running and time.time() < end:
+            time.sleep(0.25)
+
+    # ------------------------------------------------------------ AI provider
     def _provider(self):
         """claude or gemini: the chosen one if its key is set, else whichever key exists."""
         c = self.cfg
@@ -250,10 +310,26 @@ class Engine:
             self.cfg.save()
         return self.cfg["gemini_model_resolved"]
 
+    def _check_moving(self, shot):
+        """Counts how many acted steps in a row left the screen unchanged (clicks not reaching the game)."""
+        try:
+            from PIL import Image, ImageChops, ImageStat
+            import io
+            thumb = Image.open(io.BytesIO(shot)).convert("L").resize((48, 80))
+        except Exception:
+            return
+        prev, self._prev_thumb = self._prev_thumb, thumb
+        if prev is None or not self._acted:
+            return
+        diff = ImageStat.Stat(ImageChops.difference(prev, thumb)).mean[0]
+        self._stuck = self._stuck + 1 if diff < 1.5 else 0
+
     def _act(self, a, win):
         t = a.get("type", "wait")
         if t in ("tap", "swipe", "back"):
-            macos.activate(win["pid"])
+            if not macos.ensure_front(win):
+                self._covered_by = macos.covering_title(win) or "نافذة تانية"
+                return "blocked"
             time.sleep(0.15)
         if t == "tap":
             x, y = macos.to_screen(win, a.get("x", 500), a.get("y", 500))
@@ -275,7 +351,7 @@ class Engine:
 
     PENDING_MAX_STEPS = 8   # how many steps to spend getting a truck's coordinates before sending without them
 
-    def _handle_trucks(self, trucks, win):
+    def _handle_trucks(self, trucks, win, watch=False):
         """Queues a wanted S truck; it is sent once its map coordinates are known (or after a few tries)."""
         c = self.cfg
         for t in trucks:
@@ -297,8 +373,8 @@ class Engine:
                      "arrival": str(t.get("arrival") or ""), "rewards": str(t.get("rewards") or ""),
                      "photo": macos.capture_full_jpeg(win["id"]), "steps": 0}
             coords = _clean_coords(t.get("coords"))
-            if coords:
-                self._send(truck, coords)
+            if coords or watch:
+                self._send(truck, coords)  # watch mode: no clicking to fetch coordinates
             elif self._pending is None:
                 self._pending = truck
                 self._set(status="لقيت شاحنة S على #%d… بجيب الإحداثيات" % server)
@@ -350,54 +426,80 @@ class Engine:
 
     def _prompt(self):
         c = self.cfg
+        watch = self.mode() == "watch"
         hist = "".join("- %s\n" % h for h in self._history) or "- none\n"
         p = self._pending
-        pending = ""
-        if p:
-            pending = (
-                "\n>>> CURRENT TASK (more important than scouting): you just found a wanted S truck (server #%d, player "
-                "\"%s\"). Get its MAP COORDINATES:\n"
-                "  a) If its truck card is open, click the \"View\" button on the card (NOT Loot, NOT Share).\n"
-                "  b) The game moves to the world map at that truck. Read the coordinates shown on the map / location bar "
-                "(e.g. \"X:512 Y:733\" or \"#398 X:512 Y:733\") and put them in \"map_coords\".\n"
-                "  c) After that, go back to the Others' Trucks list and continue scouting.\n"
-                "  If the card is closed, reopen that truck from the list first.\n" % (p["server"], p["player"])
+        knowledge = (
+            "You look at ONE screenshot of the mobile game \"Last Z: Survival Shooter\" (shown in a desktop window: "
+            "BlueStacks, the iPhone/iPad app on Mac, or another emulator; ignore emulator toolbars/side panels). "
+            "The game UI may be in Arabic or English.\n\n"
+            "== GAME KNOWLEDGE ==\n"
+            "* Trade trucks (\"Intercity Trade\" / \"Mysterious Trade\" event): trucks drive between states (servers). "
+            "The trade screen has two bottom tabs: \"Others' Trucks\" (OTHER players' trucks) and \"My Truck\" (the "
+            "player's OWN truck).\n"
+            "* A truck CARD shows: a big golden RANK letter (S is the best, then A, B, ...); the owner as "
+            "\"Lv.25 Name\" with a power number; the server like \"#398\"; \"Arrival Time 04:23:10\"; a grid of reward "
+            "icons with counts; buttons such as View / Share / Loot.\n"
+            "* S hero fragment = golden puzzle-piece icon with a letter S (\"Universal Orange Hero Fragment\"). Its count "
+            "is the small number on the icon; s_fragments = total of those counts on the card (3 icons x1 = 3).\n"
+            "* OWN truck (never report it): \"My Truck\" tab selected, or the card shows \"Trade Escorts\", "
+            "\"Deploy Escorts\", \"Please deploy escorts\", \"Today's Trade Count\" or a refresh button.\n"
+            "* World map: after \"View\" the map centres on that truck; coordinates appear as \"X:512 Y:733\" "
+            "(sometimes \"#398 X:512 Y:733\") in a location/coordinate bar.\n"
+            "* Other screens you will meet: base/city view, battles, \"Hold & Drag\" runner mini-games, tutorials and "
+            "story dialogs, VICTORY/DEFEAT result popups, offers/ads popups, chat, alliance screens.\n\n"
+            "== WHAT TO REPORT ==\n"
+            "In \"trucks\" list ONLY other players' trucks whose card or label is clearly readable now: give rank, "
+            "server number, player name, s_fragments, arrival, coords (only if shown) and a short rewards list. "
+            "Never invent values; if the server number is not visible use 0. Never list the player's own truck.\n"
+            "Wanted: rank S with S fragments, servers #%s to #%s, except %s.\n\n"
+            % (c["server_from"], c["server_to"], c["excluded"])
+        )
+        if watch:
+            task = (
+                "== YOUR JOB: WATCH ONLY ==\n"
+                "The player is playing the game themselves right now. You must NOT act: always answer "
+                "\"action\": {\"type\": \"wait\"}. Just read the screen and report wanted trucks and any map "
+                "coordinates (\"map_coords\") that are visible.\n\n"
             )
-        return (
-            "You control the mobile game \"Last Z: Survival Shooter\" shown in a desktop window on a computer "
-            "(BlueStacks, the iPhone/iPad app, or another emulator; UI may be Arabic or English). You see one screenshot "
-            "of that window. Ignore emulator toolbars/side panels around the game.\n\n"
-            "GOAL: scout other players' trade trucks (Intercity Trade / Mysterious Trade event) and find trucks of rank S "
-            "(a big golden letter S on the truck card) whose rewards include S hero fragments (golden puzzle-piece icons "
-            "with a letter S, \"Universal Orange Hero Fragment\"). Wanted servers: #%s to #%s, excluding: %s.\n\n"
-            "HOW TO NAVIGATE:\n"
-            "1. In the base/city view, the trade truck button is a round icon with a truck on the left side. Click it.\n"
-            "2. In the trade screen, open the tab \"Others' Trucks\" (bottom). If there is a checkbox like \"Show trucks "
-            "from other states only\" / \"hide trucks from this state\", make sure it is ON.\n"
-            "3. Trucks show a server number like #398. Click a truck from a wanted server to open its card and read rank, "
-            "rewards, player name and arrival time. Then close the card (X button, or back) and continue with the next "
-            "truck. Swipe the list or the road to reveal more trucks; use a refresh of the others' truck list only if it "
-            "is free.\n"
-            "4. If a popup/ad/reward dialog is in the way, close it with its X button.\n"
-            "%s\n"
-            "STRICT RULES - never click: Loot, Plunder, Attack, Deploy, Deploy Escorts, Share, Buy, Purchase, Recharge, "
-            "anything costing diamonds/gold/gems, the refresh button of the player's OWN truck, or chat. \"View\" is "
-            "allowed (it only shows the truck on the map). You only look. If unsure, choose \"back\" or \"wait\". "
-            "\"back\" presses Escape (works in emulators); in the iPhone app prefer clicking the on-screen X / back arrow.\n\n"
-            "Recent steps (avoid repeating loops):\n%s\n"
+        else:
+            pending = ""
+            if p:
+                pending = (
+                    ">>> CURRENT TASK (more important than scouting): you just found a wanted S truck (server #%d, "
+                    "player \"%s\"). Get its MAP COORDINATES: if its card is open click \"View\" (NOT Loot, NOT Share); "
+                    "on the world map read \"X:.. Y:..\" into \"map_coords\"; then go back to the Others' Trucks list. "
+                    "If the card is closed, reopen that truck first.\n" % (p["server"], p["player"])
+                )
+            task = (
+                "== YOUR JOB: PLAY TO SCOUT TRUCKS ==\n"
+                "Navigate to other players' trucks and inspect them one by one:\n"
+                "1. From the base/city view click the round truck icon on the left side.\n"
+                "2. Open the \"Others' Trucks\" tab; if a checkbox like \"Show trucks from other states only\" / "
+                "\"hide trucks from this state\" exists, make sure it is ON.\n"
+                "3. Click a truck from a wanted server, read its card, close it (X or back) and go to the next one. "
+                "Swipe to reveal more; refresh the others' list only if it is free.\n"
+                "4. Anything else in the way (tutorial, dialog, VICTORY/DEFEAT, offer popup): close it or press "
+                "Continue/Skip/X to get back to the base view. In mini-games or battles, press back/X to leave.\n"
+                + pending +
+                "\nSTRICT RULES - never click: Loot, Plunder, Attack, Deploy, Deploy Escorts, Share, Retry, Buy, "
+                "Purchase, Recharge, anything costing diamonds/gold/gems, the OWN truck's refresh button, or chat. "
+                "\"View\" is allowed. If unsure choose \"back\" or \"wait\". \"back\" presses Escape (works in "
+                "emulators); in the iPhone app prefer the on-screen X / back arrow. Do not repeat an action that did "
+                "not change the screen; try something else.\n\n"
+                "Recent steps:\n" + hist + "\n"
+            )
+        return knowledge + task + (
             "Answer ONLY JSON:\n"
             "{\"screen\": \"short description of the current screen\",\n"
             " \"trucks\": [ {\"server\": 398, \"player\": \"name or empty\", \"rank\": \"S|A|B|...\", \"s_fragments\": 3, "
             "\"arrival\": \"04:23:10\", \"coords\": \"X:123 Y:456 if shown on the card, else empty\", "
             "\"rewards\": \"short list\"} ],\n"
-            " \"map_coords\": \"X:123 Y:456 if the world map now shows the pending truck's coordinates, else empty\",\n"
+            " \"map_coords\": \"X:123 Y:456 if a world map with coordinates is shown, else empty\",\n"
             " \"action\": {\"type\": \"tap|swipe|back|wait\", \"x\": 0-1000, \"y\": 0-1000, \"x2\": 0-1000, \"y2\": 0-1000, "
             "\"target\": \"what you click\"}}\n"
-            "x,y are normalized 0-1000 of the screenshot width/height. List in \"trucks\" ONLY trucks whose rank and "
-            "rewards are clearly visible right now; otherwise []."
-            % (c["server_from"], c["server_to"], c["excluded"], pending, hist)
+            "x,y are 0-1000 of the screenshot width/height."
         )
-
 
 def _clean_coords(v):
     """Keeps only something that looks like real coordinates (two numbers), formatted 'X:123 Y:456'."""
