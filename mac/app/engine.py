@@ -581,16 +581,19 @@ class Engine:
             self._pending = None
         if c.already_sent(truck["key"]):
             return
-        lines = ["🎯 **SHARD SNIPER** — شاحنة S!", "🌐 السيرفر: #%d" % truck["server"]]
+        def esc(v):  # names like _x_ or *x* must not break the bold
+            return re.sub(r"([*_~|`\\])", r"\\\1", str(v))
+
+        lines = ["SHARD SNIPER — شاحنة S!", "السيرفر: #%d" % truck["server"]]
         if truck["player"]:
-            lines.append("👤 اللاعب: " + truck["player"])
-        lines.append("📍 الإحداثيات: " + (coords if coords else "مش ظاهرة"))
+            lines.append("اللاعب: " + esc(truck["player"]))
+        lines.append("الإحداثيات: " + (esc(coords) if coords else "مش ظاهرة"))
         if truck["arrival"]:
-            lines.append("⏱ وقت الوصول: " + truck["arrival"])
-        lines.append("🧩 شظايا S: %d" % truck["frags"])
+            lines.append("وقت الوصول: " + esc(truck["arrival"]))
+        lines.append("شظايا S: %d" % truck["frags"])
         if truck["rewards"]:
-            lines.append("🎁 الجوايز: " + truck["rewards"])
-        text = "\n".join(lines)
+            lines.append("الجوايز: " + esc(truck["rewards"]))
+        text = "\n\n".join("**%s**" % l for l in lines)  # bold, with an empty line between lines
         sent = False
         if c["discord_webhook"]:
             try:
@@ -600,7 +603,8 @@ class Engine:
                 self._set(status="فشل الإرسال لـ Discord: " + net.short_error(str(e)))
         if c["tg_token"] and c["tg_chat"]:
             try:
-                net.telegram(c["tg_token"], c["tg_chat"], text, truck["photo"])
+                plain = re.sub(r"\\(.)", r"\1", "\n\n".join(lines))  # Telegram is sent without Markdown
+                net.telegram(c["tg_token"], c["tg_chat"], plain, truck["photo"])
                 sent = True
             except Exception:
                 pass
