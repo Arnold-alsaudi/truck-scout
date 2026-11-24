@@ -103,6 +103,43 @@ if sent:
     with open(os.path.join(OUT, "alert.txt"), "w", encoding="utf-8") as f:
         f.write(sent[0]["text"])
 
+# 5. license: real fetch, then each state with a fake license file
+import hashlib  # noqa: E402
+import main     # noqa: E402
+
+real = net.fetch_license(main.CLIENT_ID)
+check("license.json reachable", real is not None, real)
+
+api = main.Api()
+api.engine.cfg.update({"lic": {}, "lic_checked": 0, "unlock_hash": ""})
+fake = {"value": {"status": "active"}}
+net.fetch_license = lambda cid: fake["value"]
+
+check("active -> runs", api.license()["status"] == "active")
+fake["value"] = {"status": "disabled", "message": "pay first"}
+lic = api.license()
+check("disabled -> blocked with message", lic["status"] == "disabled" and lic["message"] == "pay first", lic)
+fake["value"] = {"status": "locked", "pass_sha256": hashlib.sha256(b"1234").hexdigest()}
+check("locked -> asks password", api.license()["status"] == "locked")
+check("wrong password refused", api.unlock("9999") is False and api.license()["status"] == "locked")
+check("right password opens", api.unlock("1234") is True and api.license()["status"] == "active")
+fake["value"] = {"status": "locked", "pass_sha256": hashlib.sha256(b"new").hexdigest()}
+check("new password locks again", api.license()["status"] == "locked")
+fake["value"] = {"status": "active"}
+api.license()
+api.engine.cfg["gemini_key"] = "test"
+api.engine.start()
+fake["value"] = {"status": "disabled"}
+api._apply_license(api._license_now())
+check("disabling stops a running bot", api.engine.running is False)
+fake["value"] = None  # offline
+api.engine.cfg["lic_checked"] = time.time() - 3600
+check("offline 1h -> still works", api.license()["status"] in ("disabled", "active"))
+api.engine.cfg["lic_checked"] = time.time() - 49 * 3600
+check("offline 49h -> locked", api.license()["status"] == "offline")
+api.engine.cfg.update({"lic": {}, "lic_checked": 0, "unlock_hash": ""})
+api.engine.cfg.save()
+
 with open(os.path.join(OUT, "results.json"), "w", encoding="utf-8") as f:
     json.dump(results, f, ensure_ascii=False, indent=1, default=str)
 print("ALL PASS" if ok else "SOME FAILED")
