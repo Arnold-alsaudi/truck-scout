@@ -5,3 +5,4 @@ pyobjc-framework-Quartz
 pyobjc-framework-ApplicationServices
 pyobjc-framework-WebKit
 certifi
+anthropic>=2.0
