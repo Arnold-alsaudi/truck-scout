@@ -178,6 +178,10 @@ def fetch_license(client_id):
                           % (UPDATE_REPO, int(time.time())),
                           headers={"Accept": "application/vnd.github.raw+json", "Cache-Control": "no-cache"},
                           timeout=15)
+    if code not in (200, 404):
+        # API refused (e.g. rate limit): read the same file from GitHub's file server instead
+        code, resp = _request("https://raw.githubusercontent.com/%s/main/license.json?t=%d"
+                              % (UPDATE_REPO, int(time.time())), headers={"Cache-Control": "no-cache"}, timeout=15)
     if code == 404:
         return {}
     if code != 200:
