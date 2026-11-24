@@ -169,6 +169,25 @@ def telegram(token, chat, text, jpeg=None):
     retry(once)
 
 
+# ---------------------------------------------------------------- license
+
+def fetch_license(client_id):
+    """The owner's license entry for this client from license.json in the repo.
+    Returns a dict (status/pass_sha256/message), {} if the client has no entry, or None if offline."""
+    code, resp = _request("https://api.github.com/repos/%s/contents/license.json?ref=main&t=%d"
+                          % (UPDATE_REPO, int(time.time())),
+                          headers={"Accept": "application/vnd.github.raw+json", "Cache-Control": "no-cache"},
+                          timeout=15)
+    if code == 404:
+        return {}
+    if code != 200:
+        return None
+    try:
+        return (json.loads(resp).get("clients") or {}).get(client_id) or {}
+    except ValueError:
+        return None
+
+
 # ---------------------------------------------------------------- updates
 
 def newer_mac_release(current_version):
