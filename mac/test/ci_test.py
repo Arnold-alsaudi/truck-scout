@@ -118,7 +118,7 @@ real = net.fetch_license(main.CLIENT_ID)
 check("license.json reachable", real is not None, real)
 
 api = main.Api()
-api.engine.cfg.update({"lic": {}, "lic_checked": 0, "unlock_hash": ""})
+api._engine.cfg.update({"lic": {}, "lic_checked": 0, "unlock_hash": ""})
 fake = {"value": {"status": "active"}}
 net.fetch_license = lambda cid: fake["value"]
 
@@ -134,18 +134,18 @@ fake["value"] = {"status": "locked", "pass_sha256": hashlib.sha256(b"new").hexdi
 check("new password locks again", api.license()["status"] == "locked")
 fake["value"] = {"status": "active"}
 api.license()
-api.engine.cfg["gemini_key"] = "test"
-api.engine.start()
+api._engine.cfg["gemini_key"] = "test"
+api._engine.start()
 fake["value"] = {"status": "disabled"}
 api._apply_license(api._license_now())
-check("disabling stops a running bot", api.engine.running is False)
+check("disabling stops a running bot", api._engine.running is False)
 fake["value"] = None  # offline
-api.engine.cfg["lic_checked"] = time.time() - 3600
+api._engine.cfg["lic_checked"] = time.time() - 3600
 check("offline 1h -> still works", api.license()["status"] in ("disabled", "active"))
-api.engine.cfg["lic_checked"] = time.time() - 49 * 3600
+api._engine.cfg["lic_checked"] = time.time() - 49 * 3600
 check("offline 49h -> locked", api.license()["status"] == "offline")
-api.engine.cfg.update({"lic": {}, "lic_checked": 0, "unlock_hash": ""})
-api.engine.cfg.save()
+api._engine.cfg.update({"lic": {}, "lic_checked": 0, "unlock_hash": ""})
+api._engine.cfg.save()
 
 with open(os.path.join(OUT, "results.json"), "w", encoding="utf-8") as f:
     json.dump(results, f, ensure_ascii=False, indent=1, default=str)
