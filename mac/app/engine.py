@@ -195,6 +195,7 @@ class Engine:
                     if not self.running:
                         break
 
+                step_t0 = time.time()
                 win = self.resolve_window()
                 if not win:
                     self._set("error", "نافذة اللعبة اتقفلت… مستني ترجع")
@@ -207,7 +208,7 @@ class Engine:
                     continue
                 try:
                     reading_card = "yellow truck" in getattr(self, "_last_code", "")
-                    shot, self._card = vision.main_and_card(big, 640 if reading_card else 900)
+                    shot, self._card = vision.main_and_card(big, 640 if reading_card else 768)
                 except Exception:
                     shot, self._card = big, None
 
@@ -261,8 +262,10 @@ class Engine:
                 elif "(code)" in tgt:
                     wait = 1.8 if "Refresh dice" in tgt else 0.7  # let new trucks drive in / card open
                 else:
-                    wait = min(int(self.cfg["interval"]), 2)
-                end = time.time() + wait + random.uniform(0, 0.2)
+                    # the chosen seconds are the whole step: time already spent on the screenshot and the
+                    # AI's reply counts, so "1" means one action per second when the AI answers in time
+                    wait = max(0.0, float(self.cfg["interval"]) - (time.time() - step_t0))
+                end = time.time() + wait
                 while self.running and time.time() < end:
                     time.sleep(0.1)
             except Exception as e:  # keep going on any error
