@@ -272,8 +272,13 @@ def main():
     api = Api()
     if macos.PLATFORM == "mac":
         # clear stale permission entries from older versions and show macOS's prompts right away
-        need_ax = api._engine.mode() != "watch"
-        threading.Timer(2.0, lambda: macos.reset_and_request_permissions(need_ax)).start()
+        c = api._engine.cfg
+        wipe = int(c.get("perm_version") or 0) != VERSION  # first start of this version: wipe all, ask fresh
+        if wipe:
+            c["perm_version"] = VERSION
+            c.save()
+        need_ax = wipe or api._engine.mode() != "watch"
+        threading.Timer(1.0, lambda: macos.reset_and_request_permissions(need_ax, wipe)).start()
     win = webview.create_window(
         "Saad Shard Sniper", resource(os.path.join("ui", "index.html")), js_api=api,
         width=420, height=760, min_size=(380, 560), background_color="#0c0516", text_select=False)
