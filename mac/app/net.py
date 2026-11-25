@@ -82,25 +82,18 @@ def _ask_claude_once(key, model, prompt, jpeg, card=None):
     if client is None:
         client = anthropic.Anthropic(api_key=key, timeout=90.0, max_retries=3)
         _claude_clients[key] = client
+    # No thinking: the bot only reads the screen and answers in JSON, and thinking was most of the 3-4 s
+    # wait per step. Haiku 5.5 accepts thinking "disabled" at effort low; if a model refuses it, the
+    # request is sent again without it and that model is remembered.
+    extra = {} if (model or CLAUDE_MODEL) in _thinking_refused else {"thinking": {"type": "disabled"}}
     try:
-        response = client.messages.create(
-            model=model or CLAUDE_MODEL,
-            max_tokens=8000,
-            output_config={"effort": "low"},  # quick look-and-click decisions; keeps cost and delay down
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
-                                                 "data": base64.standard_b64encode(jpeg).decode("utf-8")}},
-                ] + ([
-                    {"type": "text", "text": "Enlarged view of the lower part of the same screen (truck card and its reward icons):"},
-                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
-                                                 "data": base64.standard_b64encode(card).decode("utf-8")}},
-                ] if card else []) + [
-                    {"type": "text", "text": prompt},
-                ],
-            }],
-        )
+        try:
+            response = _claude_create(client, model, jpeg, card, prompt, extra)
+        except anthropic.BadRequestError as e:
+            if not extra or "thinking" not in str(e.message).lower():
+                raise
+            _thinking_refused.add(model or CLAUDE_MODEL)
+            response = _claude_create(client, model, jpeg, card, prompt, {})
     except anthropic.AuthenticationError:
         raise RuntimeError("مفتاح Claude غلط أو اتلغى")
     except anthropic.PermissionDeniedError:
@@ -123,6 +116,31 @@ def _ask_claude_once(key, model, prompt, jpeg, card=None):
         raise RuntimeError("Claude رفض يرد على الصورة دي")
     text = "".join(b.text for b in response.content if b.type == "text")
     return parse_json(text, "Claude")
+
+
+_thinking_refused = set()
+
+
+def _claude_create(client, model, jpeg, card, prompt, extra):
+    return client.messages.create(
+            model=model or CLAUDE_MODEL,
+            max_tokens=2000,
+            output_config={"effort": "low"},  # quick look-and-click decisions; keeps cost and delay down
+            **extra,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                 "data": base64.standard_b64encode(jpeg).decode("utf-8")}},
+                ] + ([
+                    {"type": "text", "text": "Enlarged view of the lower part of the same screen (truck card and its reward icons):"},
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                                 "data": base64.standard_b64encode(card).decode("utf-8")}},
+                ] if card else []) + [
+                    {"type": "text", "text": prompt},
+                ],
+            }],
+        )
 
 
 # ---------------------------------------------------------------- Gemini
