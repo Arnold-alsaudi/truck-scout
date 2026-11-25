@@ -309,7 +309,7 @@ def fix_install_location():
     return False  # Windows needs no move / permission fixing
 
 
-def reset_and_request_permissions(need_accessibility=True):
+def reset_and_request_permissions(need_accessibility=True, wipe_all=False):
     pass
 
 
