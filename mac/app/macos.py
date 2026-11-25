@@ -153,10 +153,23 @@ def capture_jpeg(win_id, max_width=900):
                            capture_output=True, timeout=15)
         if r.returncode != 0 or not os.path.getsize(path):
             return None
-        # shrink to keep Gemini fast and cheap
-        subprocess.run(["sips", "--resampleWidth", str(max_width), path], capture_output=True, timeout=15)
-        with open(path, "rb") as f:
-            return f.read()
+        # shrink in memory (faster than launching 'sips'); Retina windows come out at 2x size
+        try:
+            import io
+            from PIL import Image
+            img = Image.open(path)
+            if img.width > max_width:
+                img.draft("RGB", (max_width, max(1, img.height * max_width // img.width)))  # fast JPEG decode
+                img = img.convert("RGB")
+                if img.width > max_width:
+                    img = img.resize((max_width, round(img.height * max_width / img.width)), Image.BILINEAR)
+            b = io.BytesIO()
+            img.convert("RGB").save(b, "JPEG", quality=88)
+            return b.getvalue()
+        except Exception:
+            subprocess.run(["sips", "--resampleWidth", str(max_width), path], capture_output=True, timeout=15)
+            with open(path, "rb") as f:
+                return f.read()
     finally:
         try:
             os.remove(path)
@@ -278,9 +291,27 @@ def fix_install_location():
         return False
 
 
-def reset_and_request_permissions(need_accessibility=True):
+def reset_and_request_permissions(need_accessibility=True, wipe_all=False):
     """Clears stale permission entries left by older versions (they make the switch refuse to stay on),
-    then asks macOS to show its permission prompts again."""
+    then asks macOS to show its permission prompts again.
+
+    wipe_all (first start of a new version): every permission of this app is erased, because the old
+    entries belong to the previous build's signature and silently stop working; then all prompts are
+    shown fresh so one round of 'Allow' makes everything work."""
+    if wipe_all:
+        subprocess.run(["tccutil", "reset", "All", BUNDLE_ID], capture_output=True)
+        try:
+            Quartz.CGRequestScreenCaptureAccess()
+        except AttributeError:
+            pass
+        if need_accessibility:
+            if AS is not None:
+                AS.AXIsProcessTrustedWithOptions({AS.kAXTrustedCheckOptionPrompt: True})
+            try:
+                Quartz.CGRequestPostEventAccess()  # lets the bot's clicks reach the game
+            except AttributeError:
+                pass
+        return
     if not has_screen_recording():
         subprocess.run(["tccutil", "reset", "ScreenCapture", BUNDLE_ID], capture_output=True)
         try:
