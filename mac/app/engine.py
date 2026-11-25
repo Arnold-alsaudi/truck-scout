@@ -255,16 +255,16 @@ class Engine:
 
                 tgt = str(act.get("target", ""))
                 if act.get("type") == "wait":
-                    wait = 8
+                    wait = 3
                 elif act.get("type") == "none":
-                    wait = 0.5
+                    wait = 0.3
                 elif "(code)" in tgt:
-                    wait = 2.2 if "Refresh dice" in tgt else 0.9  # let new trucks drive in / card open
+                    wait = 1.8 if "Refresh dice" in tgt else 0.7  # let new trucks drive in / card open
                 else:
-                    wait = int(self.cfg["interval"])
-                end = time.time() + wait + random.uniform(0, 0.6)
+                    wait = min(int(self.cfg["interval"]), 2)
+                end = time.time() + wait + random.uniform(0, 0.2)
                 while self.running and time.time() < end:
-                    time.sleep(0.25)
+                    time.sleep(0.1)
             except Exception as e:  # keep going on any error
                 errors += 1
                 self._set("error", "خطأ: " + net.short_error(str(e)))
@@ -317,7 +317,7 @@ class Engine:
         ys = [q for q in getattr(self, "_yellow", []) if q[1] < 720]  # never near the card's Plunder! button
         opened = getattr(self, "_opened", [])
         if not ys:
-            if since_refresh < 6:                         # trucks are still driving in after a Refresh
+            if since_refresh < 4:                         # trucks are still driving in after a Refresh
                 return {"type": "none", "target": "waiting for trucks after Refresh (code)"}
             return ai_action                              # not on the road (or a popup covers it): AI navigates
         fresh = [q for q in ys if not any(abs(q[0] - ox) < 60 and abs(q[1] - oy) < 60 for ox, oy in opened)]
@@ -325,7 +325,7 @@ class Engine:
             x, y = fresh[0]
             return {"type": "tap", "x": x, "y": y, "target": "yellow truck at %d,%d (code)" % (x, y)}
         rxy = getattr(self, "_refresh_xy", None)
-        if rxy and since_refresh >= 6:
+        if rxy and since_refresh >= 4:
             self._last_refresh = now
             return {"type": "tap", "x": rxy[0], "y": rxy[1], "target": "Refresh dice (code)"}
         if rxy:
