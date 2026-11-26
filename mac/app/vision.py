@@ -101,6 +101,36 @@ def share_button(jpeg):
     return int(best[1] * 1000 / W), int(best[2] * 1000 / H)
 
 
+def is_blue_button(jpeg, x, y, radius=30):
+    """True if the spot (0-1000 coords) sits on a blue button. Inside the Share popup the blue buttons are the
+    "send to World / Alliance / chat" buttons, so a tap there must never happen."""
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(jpeg)).convert("RGB")
+    W, H = img.size
+    cx, cy = x * W / 1000.0, y * H / 1000.0
+    r = radius * W / 1000.0
+    box = img.crop((int(max(0, cx - r)), int(max(0, cy - r)), int(min(W, cx + r)), int(min(H, cy + r))))
+    px = list(box.resize((12, 12)).getdata())
+    blue = sum(1 for R, G, B in px if B >= 150 and B > R + 60)
+    return blue >= len(px) * 0.12
+
+
+def is_popup_row(jpeg, x, y, radius=30):
+    """True if the spot is on the light beige panel of the Share popup (its channel rows) rather than on the
+    dark header where the X is."""
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(jpeg)).convert("RGB")
+    W, H = img.size
+    cx, cy = x * W / 1000.0, y * H / 1000.0
+    r = radius * W / 1000.0
+    box = img.crop((int(max(0, cx - r)), int(max(0, cy - r)), int(min(W, cx + r)), int(min(H, cy + r))))
+    px = list(box.resize((12, 12)).getdata())
+    light = sum(1 for R, G, B in px if R >= 185 and G >= 180 and B >= 160)
+    return light >= len(px) * 0.55
+
+
 def main_and_card(jpeg_big, main_width=900):
     """From one high-res screenshot: a normal-size image for the AI plus an enlarged crop of the lower part
     (where the truck card and its reward icons are), so small S-fragment icons are easy to read."""
