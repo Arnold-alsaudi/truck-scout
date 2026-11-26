@@ -49,6 +49,58 @@ def yellow_trucks(jpeg, max_items=12):
     return [(int(bx * 1000 / W), int(by * 1000 / H)) for bx, by in blobs[:max_items]]
 
 
+def share_button(jpeg):
+    """Centre (x, y) in 0-1000 of the blue "Share" button on an open truck card, or None.
+
+    Found by colour, not guessed: a wide, bright blue button in the lower part of the screen. "Plunder!" next to
+    it is orange, so this can never return the Plunder! button."""
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(jpeg)).convert("RGB")
+    W, H = 160, int(160 * img.height / img.width)
+    px = img.resize((W, H)).load()
+    y0, y1 = int(H * 0.55), int(H * 0.97)
+    mask = [[False] * W for _ in range(H)]
+    for y in range(y0, y1):
+        for x in range(W):
+            r, g, b = px[x, y]
+            # button blue: strong blue, clearly more green than red (purple reward tiles have g < r)
+            if b >= 170 and b > r + 90 and g > r + 35 and g >= 110:
+                mask[y][x] = True
+    seen = [[False] * W for _ in range(H)]
+    best = None
+    for y in range(y0, y1):
+        for x in range(W):
+            if not mask[y][x] or seen[y][x]:
+                continue
+            stack, pts = [(x, y)], []
+            seen[y][x] = True
+            while stack:
+                cx, cy = stack.pop()
+                pts.append((cx, cy))
+                for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                    if 0 <= nx < W and y0 <= ny < y1 and mask[ny][nx] and not seen[ny][nx]:
+                        seen[ny][nx] = True
+                        stack.append((nx, ny))
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            w, h = max(xs) - min(xs) + 1, max(ys) - min(ys) + 1
+            # a button: wide and short, solidly filled
+            if w >= W * 0.12 and h >= 3 and w >= h * 2 and len(pts) >= w * h * 0.5:
+                cy = sum(ys) / len(ys)
+                # only the truck card has the orange "Plunder!" button right beside Share, on the same row:
+                # this rules out blue gates in mini-games, "Skip" buttons and the blue header of B-rank cards
+                left_end, left_start = min(xs) - 1, max(0, int(min(xs) - w * 1.4))
+                row = [px[lx, int(cy)] for lx in range(left_start, left_end)]
+                orange = sum(1 for r, g, b in row if r >= 200 and 120 <= g <= 225 and b <= 110)
+                if row and orange >= len(row) * 0.35:
+                    if best is None or len(pts) > best[0]:
+                        best = (len(pts), sum(xs) / len(xs), cy)
+    if not best:
+        return None
+    return int(best[1] * 1000 / W), int(best[2] * 1000 / H)
+
+
 def main_and_card(jpeg_big, main_width=900):
     """From one high-res screenshot: a normal-size image for the AI plus an enlarged crop of the lower part
     (where the truck card and its reward icons are), so small S-fragment icons are easy to read."""
@@ -56,8 +108,8 @@ def main_and_card(jpeg_big, main_width=900):
     img = Image.open(io.BytesIO(jpeg_big)).convert("RGB")
     main = img.resize((main_width, round(img.height * main_width / img.width)), Image.LANCZOS) if img.width > main_width else img
     card = img.crop((0, int(img.height * 0.55), img.width, int(img.height * 0.97)))
-    if card.width > 800:  # still large enough to read the reward icons, but quicker for the AI
-        card = card.resize((800, round(card.height * 800 / card.width)), Image.LANCZOS)
+    if card.width > 1000:  # still large enough to read the reward icons, but quicker for the AI
+        card = card.resize((1000, round(card.height * 1000 / card.width)), Image.LANCZOS)
     out = []
     for im in (main, card):
         b = io.BytesIO()
