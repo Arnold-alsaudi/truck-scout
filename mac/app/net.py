@@ -70,30 +70,22 @@ CLAUDE_MODEL = "claude-haiku-5-5"  # fast, sees images, cheapest current model
 _claude_clients = {}
 
 
-def ask_claude(key, model, prompt, jpeg, card=None):
+def ask_claude(key, model, prompt, jpeg, card=None, system=None):
     """Sends the screenshot (+ an enlarged crop of the card area) + instructions to Claude; returns its JSON."""
-    return retry(lambda: _ask_claude_once(key, model, prompt, jpeg, card))
+    return retry(lambda: _ask_claude_once(key, model, prompt, jpeg, card, system))
 
 
-def _ask_claude_once(key, model, prompt, jpeg, card=None):
+def _ask_claude_once(key, model, prompt, jpeg, card=None, system=None):
     import anthropic  # imported here so the app still starts if the package is missing
 
     client = _claude_clients.get(key)
     if client is None:
         client = anthropic.Anthropic(api_key=key, timeout=90.0, max_retries=3)
         _claude_clients[key] = client
-    # No thinking: the bot only reads the screen and answers in JSON, and thinking was most of the 3-4 s
-    # wait per step. Haiku 5.5 accepts thinking "disabled" at effort low; if a model refuses it, the
-    # request is sent again without it and that model is remembered.
-    extra = {} if (model or CLAUDE_MODEL) in _thinking_refused else {"thinking": {"type": "disabled"}}
+    # Thinking stays ON (adaptive, effort low): with it off the AI misread positions and tapped wrong spots.
+    # Speed comes from the code doing the clicks itself (yellow trucks, Share, Refresh, learned buttons).
     try:
-        try:
-            response = _claude_create(client, model, jpeg, card, prompt, extra)
-        except anthropic.BadRequestError as e:
-            if not extra or "thinking" not in str(e.message).lower():
-                raise
-            _thinking_refused.add(model or CLAUDE_MODEL)
-            response = _claude_create(client, model, jpeg, card, prompt, {})
+        response = _claude_create(client, model, jpeg, card, prompt, {}, system)
     except anthropic.AuthenticationError:
         raise RuntimeError("مفتاح Claude غلط أو اتلغى")
     except anthropic.PermissionDeniedError:
@@ -118,10 +110,9 @@ def _ask_claude_once(key, model, prompt, jpeg, card=None):
     return parse_json(text, "Claude")
 
 
-_thinking_refused = set()
-
-
-def _claude_create(client, model, jpeg, card, prompt, extra):
+def _claude_create(client, model, jpeg, card, prompt, extra, system=None):
+    if system:  # the fixed instructions, cached so Claude reads them faster on every step
+        extra = dict(extra, system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}])
     return client.messages.create(
             model=model or CLAUDE_MODEL,
             max_tokens=2000,
