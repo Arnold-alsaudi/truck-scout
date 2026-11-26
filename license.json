@@ -11,8 +11,8 @@
                                       "message":  ""
                                   },
                     "android":  {
-                                    "status":  "locked",
-                                    "pass_sha256":  "594978b010170b9753dadbe9aeff6c2d5ae58b708e636ca64f03a4083ad0524f",
+                                    "status":  "active",
+                                    "pass_sha256":  "",
                                     "message":  ""
                                 }
                 }
