@@ -228,8 +228,32 @@ class Engine:
                            and getattr(self, "_refresh_xy", None) is not None
                            and any(k in last for k in ("Refresh dice (code)", "close Share popup (code)",
                                                         "waiting for trucks after Refresh (code)", "Refresh cooldown (code)")))
+                quick = None
+                p = self._pending
+                if not skip_ai and p and p.get("share_tries") == 1 and self._provider() == "claude":
+                    # Share was pressed: read ONLY the popup (small crop, one-line question) - about a second,
+                    # instead of the whole screen with the long instructions (5-8 s)
+                    try:
+                        q = net.read_share_popup(self.cfg["claude_key"],
+                                                 str(self.cfg.get("claude_model") or net.CLAUDE_MODEL).strip(),
+                                                 vision.popup_band(big))
+                    except Exception:
+                        q = None
+                    if isinstance(q, dict):
+                        if q.get("open"):
+                            cxy = q.get("close_xy")
+                            close = list(vision.band_to_screen(*cxy)) if isinstance(cxy, list) and len(cxy) == 2 else []
+                            quick = {"screen": "Share popup (quick read)", "trucks": [],
+                                     "map_coords": str(q.get("coords") or ""), "popup_close_xy": close,
+                                     "action": {"type": "wait"}}
+                        else:
+                            quick = {"screen": "waiting for Share popup (quick read)", "trucks": [],
+                                     "action": {"type": "none"}}
                 if skip_ai:
                     ans = {"screen": "trucks road", "trucks": [], "action": {"type": "none"}}
+                elif quick:
+                    ans = quick
+                    self._log(ans)
                 else:
                     ans = self._ask(shot)
                     self._log(ans)
