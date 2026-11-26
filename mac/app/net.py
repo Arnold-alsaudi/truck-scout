@@ -69,6 +69,39 @@ def parse_json(text, who="AI"):
 CLAUDE_MODEL = "claude-haiku-5-5"  # fast, sees images, cheapest current model
 _claude_clients = {}
 
+_POPUP_PROMPT = (
+    "This is the upper part of a Last Z game screen. Is the small \"Share\" popup open (dark title bar with the "
+    "word Share and an X at its top-right, then a line like \"[91TR]name [#:393 X:905 Y:925]\")?\n"
+    "Answer ONLY compact JSON: {\"open\": true|false, \"coords\": \"#:393 X:905 Y:925 exactly as shown, else empty\", "
+    "\"close_xy\": [x, y] of the X at the top-right of the popup's title bar in 0-1000 of THIS image, else []}"
+)
+
+
+def read_share_popup(key, model, jpeg):
+    """Fast read of just the Share popup: a small crop and a one-line question instead of the whole screen
+    and the long instructions, so the coordinates come back in about a second."""
+    import anthropic
+
+    client = _claude_clients.get(key)
+    if client is None:
+        client = anthropic.Anthropic(api_key=key, timeout=90.0, max_retries=3)
+        _claude_clients[key] = client
+    try:
+        r = client.messages.create(
+            model=model or CLAUDE_MODEL, max_tokens=1000, output_config={"effort": "low"},
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                             "data": base64.standard_b64encode(jpeg).decode("utf-8")}},
+                {"type": "text", "text": _POPUP_PROMPT}]}])
+    except (anthropic.RateLimitError, anthropic.APIConnectionError, anthropic.InternalServerError):
+        return None
+    if r.stop_reason == "refusal":
+        return None
+    try:
+        return parse_json("".join(b.text for b in r.content if b.type == "text"), "Claude")
+    except Exception:
+        return None
+
 
 def ask_claude(key, model, prompt, jpeg, card=None, system=None):
     """Sends the screenshot (+ an enlarged crop of the card area) + instructions to Claude; returns its JSON."""
