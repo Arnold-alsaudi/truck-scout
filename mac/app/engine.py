@@ -296,27 +296,49 @@ class Engine:
         if xy("popup_close_xy"):
             self._last_close_xy = xy("popup_close_xy")  # remembered for next time
 
-        if getattr(self, "_need_close", False):           # coordinates read and sent: close the Share popup
+        scr = str(ans.get("screen", "")).lower()
+        popup_open = bool(xy("popup_close_xy")) or ("share" in scr and "popup" in scr)
+        if popup_open or getattr(self, "_need_close", False):
+            # The Share popup is open. Its rows (World, Alliance, chats) SEND the truck to that channel when
+            # tapped, so inside it the bot may only press the X - checked so it is never a blue send button.
+            p = self._pending
+            if p and not _clean_coords(ans.get("map_coords")) and p["steps"] < self.PENDING_MAX_STEPS:
+                return {"type": "none", "target": "reading coordinates in Share popup (code)"}
+            if p:
+                self._send(p, "")                         # coordinates not readable: alert without them
             self._need_close = False
             cxy = xy("popup_close_xy") or getattr(self, "_last_close_xy", None)
+            safe = False
             if cxy:
+                try:
+                    safe = (cxy[1] < 600 and not vision.is_blue_button(self._shot, cxy[0], cxy[1])
+                            and not vision.is_popup_row(self._shot, cxy[0], cxy[1]))
+                except Exception:
+                    safe = False
+            if safe:
                 return {"type": "tap", "x": cxy[0], "y": cxy[1], "target": "close Share popup (code)"}
             return {"type": "back", "target": "close Share popup (code)"}
 
         p = self._pending
         if p:                                             # found S truck: press Share on its card ourselves
+            if p.get("share_tries", 0) >= 1:
+                # Share was pressed already. NEVER press it again: if the popup opened a moment late, a second
+                # press would land on a channel row inside it and send the truck to that chat.
+                if p["steps"] >= 4:
+                    self._send(p, "")                     # popup never came: alert without coordinates
+                    return {"type": "none", "target": "Share popup did not open (code)"}
+                return {"type": "none", "target": "waiting for Share popup (code)"}
             # the button is found by its colour (blue, with the orange Plunder! beside it), never guessed:
             # the AI's own guess of its position was often off and opened reward tooltips instead
             try:
                 sxy = vision.share_button(self._shot)
             except Exception:
                 sxy = None
-            tries = p.get("share_tries", 0)
-            if sxy and tries < 3:
-                p["share_tries"] = tries + 1
+            if sxy:
+                p["share_tries"] = 1
                 return {"type": "tap", "x": sxy[0], "y": sxy[1], "target": "Share (code)"}
-            if tries >= 3 or p["steps"] >= 3:
-                self._send(p, "")                         # couldn't get coordinates: send without them
+            if p["steps"] >= 3:
+                self._send(p, "")                         # card gone / button not found: send without coords
             else:
                 return {"type": "none", "target": "waiting for the card (code)"}
 
@@ -535,6 +557,10 @@ class Engine:
                 return "blocked"
             time.sleep(0.15)
         if t == "tap":
+            tgt = str(a.get("target", "")).lower()
+            if "(code)" not in tgt and "(learned)" not in tgt and any(
+                    w in tgt for w in ("world", "alliance", "chat", "send", "channel", "copy", "plunder")):
+                return "skip: never send/share to a channel or plunder"
             snapped = self._snap_to_yellow(a)
             if snapped == "none-left":
                 return "skip: all yellow trucks already opened - tap Refresh"
@@ -605,6 +631,13 @@ class Engine:
             return
         p["steps"] += 1
         coords = _clean_coords(ans.get("map_coords"))
+        if not coords:  # the AI sometimes puts the popup's coordinates on the truck instead of map_coords
+            for t in ans.get("trucks") or []:
+                coords = _clean_coords((t or {}).get("coords")) if isinstance(t, dict) else ""
+                if coords:
+                    break
+        if coords:
+            ans["map_coords"] = coords
         if coords:
             self._send(p, coords)
             self._need_close = True
