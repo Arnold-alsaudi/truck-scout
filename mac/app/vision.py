@@ -131,6 +131,28 @@ def is_popup_row(jpeg, x, y, radius=30):
     return light >= len(px) * 0.55
 
 
+POPUP_BAND = (0.10, 0.55)  # part of the screen (top..bottom) where the Share popup's title and coordinates are
+
+
+def popup_band(jpeg_big, width=700):
+    """Small crop of the screen band that holds the Share popup's title bar and coordinates line."""
+    from PIL import Image
+    img = Image.open(io.BytesIO(jpeg_big)).convert("RGB")
+    top, bottom = int(img.height * POPUP_BAND[0]), int(img.height * POPUP_BAND[1])
+    band = img.crop((0, top, img.width, bottom))
+    if band.width > width:
+        band = band.resize((width, round(band.height * width / band.width)), Image.LANCZOS)
+    b = io.BytesIO()
+    band.save(b, "JPEG", quality=88)
+    return b.getvalue()
+
+
+def band_to_screen(x, y):
+    """0-1000 position inside popup_band() -> 0-1000 position on the whole screen."""
+    top, bottom = POPUP_BAND
+    return float(x), (top + (bottom - top) * float(y) / 1000.0) * 1000.0
+
+
 def main_and_card(jpeg_big, main_width=900):
     """From one high-res screenshot: a normal-size image for the AI plus an enlarged crop of the lower part
     (where the truck card and its reward icons are), so small S-fragment icons are easy to read."""
