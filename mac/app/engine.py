@@ -208,7 +208,7 @@ class Engine:
                     continue
                 try:
                     reading_card = "yellow truck" in getattr(self, "_last_code", "")
-                    shot, self._card = vision.main_and_card(big, 640 if reading_card else 768)
+                    shot, self._card = vision.main_and_card(big, 640 if reading_card else 900)
                 except Exception:
                     shot, self._card = big, None
 
@@ -217,6 +217,7 @@ class Engine:
                     errors = 0
                     continue
 
+                self._shot = shot
                 self._check_moving(shot)
                 try:
                     self._yellow = vision.yellow_trucks(shot)
@@ -240,6 +241,7 @@ class Engine:
                 if isinstance(rxy, list) and len(rxy) == 2:
                     self._refresh_xy = (float(rxy[0]), float(rxy[1]))
                 act = self._drive_trucks(ans.get("action") or {}, ans)
+                act = self._truck_icon(act, ans, screen)
                 done = self._act(act, win)
                 self._last_code = str(act.get("target", "")) if "(code)" in str(act.get("target", "")) else ""
                 self._note_opened(act)
@@ -254,17 +256,14 @@ class Engine:
                 else:
                     self._set("running", screen)
 
-                tgt = str(act.get("target", ""))
-                if act.get("type") == "wait":
-                    wait = 3
-                elif act.get("type") == "none":
-                    wait = 0.3
-                elif "(code)" in tgt:
-                    wait = 1.8 if "Refresh dice" in tgt else 0.7  # let new trucks drive in / card open
-                else:
-                    # the chosen seconds are the whole step: time already spent on the screenshot and the
-                    # AI's reply counts, so "1" means one action per second when the AI answers in time
-                    wait = max(0.0, float(self.cfg["interval"]) - (time.time() - step_t0))
+                # Every step takes the seconds the user chose, counted from the step's start: the screenshot,
+                # the AI's reading and the tap all happen inside it ("2" = one step every 2 seconds). Only the
+                # game's own animations set a small minimum (a card needs ~0.4 s to open, new trucks ~1 s to
+                # drive in after Refresh), and the AI's reply can't be cut short if it takes longer.
+                tgt = str(act.get("type", "")) + " " + str(act.get("target", ""))
+                floor = 1.0 if ("Refresh dice" in tgt or act.get("type") == "wait") else (
+                    0.4 if "yellow truck" in tgt else 0.0)
+                wait = max(floor, float(self.cfg["interval"]) - (time.time() - step_t0))
                 end = time.time() + wait
                 while self.running and time.time() < end:
                     time.sleep(0.1)
@@ -306,7 +305,12 @@ class Engine:
 
         p = self._pending
         if p:                                             # found S truck: press Share on its card ourselves
-            sxy = xy("share_xy")
+            # the button is found by its colour (blue, with the orange Plunder! beside it), never guessed:
+            # the AI's own guess of its position was often off and opened reward tooltips instead
+            try:
+                sxy = vision.share_button(self._shot)
+            except Exception:
+                sxy = None
             tries = p.get("share_tries", 0)
             if sxy and tries < 3:
                 p["share_tries"] = tries + 1
@@ -334,6 +338,33 @@ class Engine:
         if rxy:
             return {"type": "none", "target": "Refresh cooldown (code)"}
         return ai_action                                  # Refresh not located yet: AI's choice this time
+    def _truck_icon(self, act, ans, screen):
+        """The trucks button on the base/city view: once a tap really opened the trucks screen, that spot is
+        remembered and used every time after, instead of the AI guessing a new place each step."""
+        on_road = bool(getattr(self, "_yellow", None)) or bool(ans.get("refresh_xy")) or "truck" in screen.lower() \
+            and ("others" in screen.lower() or "road" in screen.lower())
+        last = getattr(self, "_icon_try", None)
+        if on_road and last:                               # the previous tap opened the trucks screen: learn it
+            self.cfg["truck_icon_xy"] = [last[0], last[1]]
+            self.cfg.save()
+            self._icon_fails = 0
+        elif last and last[2]:                             # the learned spot didn't work this time
+            self._icon_fails = getattr(self, "_icon_fails", 0) + 1
+            if self._icon_fails >= 3:                      # window changed? forget it, the AI looks again
+                self.cfg["truck_icon_xy"] = None
+                self.cfg.save()
+                self._icon_fails = 0
+        self._icon_try = None
+        tgt = str(act.get("target", "")).lower()
+        if act.get("type") == "tap" and "(code)" not in tgt and "truck" in tgt and \
+                any(w in tgt for w in ("icon", "button", "round")) and not on_road:
+            learned = self.cfg.get("truck_icon_xy")
+            used = isinstance(learned, list) and len(learned) == 2
+            if used:
+                act = dict(act, x=learned[0], y=learned[1], target="trucks button (learned)")
+            self._icon_try = (float(act.get("x", 500)), float(act.get("y", 500)), used)
+        return act
+
     def _snap_to_yellow(self, a):
         """When the AI taps a truck, the bot itself taps the middle of the nearest yellow (S) truck that wasn't
         opened yet - so a green/white/blue truck (or an avatar sitting over one) can never be opened."""
@@ -440,12 +471,14 @@ class Engine:
         c = self.cfg
         if self._provider() == "claude":
             model = str(c.get("claude_model") or net.CLAUDE_MODEL).strip()
+            fixed, step = self._prompt_parts()
             try:
-                return net.ask_claude(c["claude_key"], model, self._prompt(), shot, getattr(self, "_card", None))
+                return net.ask_claude(c["claude_key"], model, step, shot, getattr(self, "_card", None), system=fixed)
             except net.ModelGone:
                 c["claude_model"] = net.CLAUDE_MODEL
                 c.save()
-                return net.ask_claude(c["claude_key"], net.CLAUDE_MODEL, self._prompt(), shot, getattr(self, "_card", None))
+                return net.ask_claude(c["claude_key"], net.CLAUDE_MODEL, step, shot, getattr(self, "_card", None),
+                                      system=fixed)
         try:
             return net.ask_gemini(c["gemini_key"], self._model(), self._prompt(), shot)
         except net.ModelGone:
@@ -616,6 +649,13 @@ class Engine:
             c.save()
 
     def _prompt(self):
+        """Whole prompt in one string (Gemini)."""
+        fixed, step = self._prompt_parts()
+        return fixed + "\n\n" + step
+
+    def _prompt_parts(self):
+        """(fixed, step): the fixed part is identical every step, so Claude can cache it and read it faster;
+        the step part is the small text that changes (current task, yellow trucks found, recent steps)."""
         c = self.cfg
         watch = self.mode() == "watch"
         hist = "".join("- %s\n" % h for h in self._history) or "- none\n"
@@ -670,7 +710,10 @@ class Engine:
             task = (
                 "== YOUR JOB: PLAY TO SCOUT TRUCKS ==\n"
                 "Navigate to other players' trucks and inspect them one by one:\n"
-                "1. From the base/city view click the round truck icon on the left side.\n"
+                "1. From the base/city view click the trucks button: a ROUND icon with a white delivery-truck picture in "
+                "the BOTTOM-LEFT corner of the game, directly above the round \"WANTED\" poster icon (around x=60-90, "
+                "y=850-900). Target text must contain \"truck icon\". It is NOT on the upper-left, not a building, "
+                "not an event icon.\n"
                 "2. Open the \"Others' Trucks\" tab; if a checkbox like \"Show trucks from other states only\" / "
                 "\"hide trucks from this state\" exists, make sure it is ON.\n"
                 "3. ONLY YELLOW / GOLDEN trucks are rank S. Tap ONLY a yellow truck that has an avatar and a name tag like "
@@ -681,15 +724,14 @@ class Engine:
                 "side to get a new list, then continue. If Refresh asks to pay diamonds/gems, close that popup instead.\n"
                 "5. Anything else in the way (tutorial, dialog, VICTORY/DEFEAT, offer popup): close it or press "
                 "Continue/Skip/X to get back to the base view. In mini-games or battles, press back/X to leave.\n"
-                + pending +
                 "\nSTRICT RULES - never click: Loot, Plunder, Plunder!, Attack, Deploy, Deploy Escorts, Retry, Buy, "
                 "Purchase, Recharge, anything costing diamonds/gold/gems, the OWN truck's refresh button, or chat. "
                 "\"Share\" is allowed ONLY to open the popup and read coordinates (then close it with X). If unsure choose \"back\" or \"wait\". \"back\" presses Escape (works in "
                 "emulators); in the iPhone app prefer the on-screen X / back arrow. Do not repeat an action that did "
                 "not change the screen; try something else.\n\n"
-                + self._yellow_hint() +
-                "Recent steps:\n" + hist + "\n"
             )
+        step = "" if watch else (pending + ("\n" if pending else "") + self._yellow_hint() +
+                                 "Recent steps:\n" + hist + "\n")
         return knowledge + task + (
             "Answer ONLY compact JSON, no extra text. Keep \"screen\" to at most 6 words and \"rewards\" to at most 8 words.\n"
             "{\"screen\": \"short description of the current screen\",\n"
@@ -703,7 +745,7 @@ class Engine:
             " \"action\": {\"type\": \"tap|swipe|back|wait\", \"x\": 0-1000, \"y\": 0-1000, \"x2\": 0-1000, \"y2\": 0-1000, "
             "\"target\": \"what you click\"}}\n"
             "x,y are 0-1000 of the screenshot width/height."
-        )
+        ), step + "Look at the screenshot now and answer with the JSON."
 
 def _clean_coords(v):
     """Keeps only something that looks like real coordinates (two numbers), formatted 'X:123 Y:456'."""
